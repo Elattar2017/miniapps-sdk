@@ -68,16 +68,16 @@ export class ModuleTokenManager {
       return { acquired: true, token: cached.token, expiresAt: cached.expiresAt };
     }
 
-    // 3. Decrypt the factory URL (or use as-is if plain text in dev)
+    // 3. Resolve factory URL — plain text if it looks like a URL, otherwise decrypt
     let factoryUrl: string;
-    try {
-      factoryUrl = await this.cryptoAdapter.decrypt(manifest.externalTokenFactoryURL, this.encryptionKey);
-    } catch {
-      // Decryption failed — URL may be plain text (common in dev environments)
-      if (manifest.externalTokenFactoryURL.startsWith('http://') || manifest.externalTokenFactoryURL.startsWith('https://')) {
-        this.log.warn("Factory URL appears to be plain text (not encrypted)", { moduleId: manifest.id });
-        factoryUrl = manifest.externalTokenFactoryURL;
-      } else {
+    if (manifest.externalTokenFactoryURL.startsWith('http://') || manifest.externalTokenFactoryURL.startsWith('https://')) {
+      // Plain text URL (common in dev/test environments)
+      factoryUrl = manifest.externalTokenFactoryURL;
+    } else {
+      // Encrypted URL — decrypt it
+      try {
+        factoryUrl = await this.cryptoAdapter.decrypt(manifest.externalTokenFactoryURL, this.encryptionKey);
+      } catch {
         this.log.error("Failed to decrypt factory URL — ensure crypto provider is available", { moduleId: manifest.id });
         return { acquired: false, error: "URL decryption failed" };
       }

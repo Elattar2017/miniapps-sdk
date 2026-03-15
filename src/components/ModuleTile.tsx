@@ -6,9 +6,11 @@
  * Used inside ActionZone to represent each available module.
  */
 
-import React from 'react';
+import React, { useContext } from 'react';
 import { SDKView, SDKText, SDKImage, SDKTouchableOpacity } from '../adapters';
 import type { ModuleSummary } from '../types';
+import { iconRegistry } from '../schema/icons/IconRegistry';
+import { KernelContext } from '../kernel/KernelContext';
 
 export interface ModuleTileProps {
   module: ModuleSummary;
@@ -42,15 +44,37 @@ function IconFallback({ name }: { name: string }): React.JSX.Element {
 }
 
 export function ModuleTile({ module: mod, onPress }: ModuleTileProps): React.JSX.Element {
-  const hasIcon = mod.icon && mod.icon.length > 0;
+  const kernelCtx = useContext(KernelContext);
+  const apiBaseUrl = kernelCtx?.config?.apiBaseUrl ?? '';
+  const iconValue = mod.icon ?? '';
 
-  const icon = hasIcon
-    ? React.createElement(SDKImage, {
-        source: { uri: mod.icon },
-        style: { width: 48, height: 48, borderRadius: 12 },
-        resizeMode: 'cover',
-      })
-    : React.createElement(IconFallback, { name: mod.name });
+  // Determine icon type: SVG icon name, image URL, or fallback
+  const isIconName = iconValue.length > 0 && !iconValue.includes('/') && !iconValue.includes('.');
+  const isRelativePath = iconValue.startsWith('/');
+  const isAbsoluteUrl = iconValue.startsWith('http');
+
+  let icon: React.JSX.Element;
+  if (isIconName) {
+    // Named icon (e.g. "wallet", "bar-chart") — render from IconRegistry
+    const resolved = iconRegistry.resolve(iconValue, 24, '#FFFFFF');
+    if (resolved) {
+      icon = React.createElement(SDKView, {
+        style: { width: 48, height: 48, borderRadius: 12, backgroundColor: '#7C3AED', justifyContent: 'center', alignItems: 'center' },
+      }, resolved);
+    } else {
+      icon = React.createElement(IconFallback, { name: mod.name });
+    }
+  } else if (isRelativePath || isAbsoluteUrl) {
+    // Image URL — prepend base URL for relative paths
+    const uri = isRelativePath ? `${apiBaseUrl}${iconValue}` : iconValue;
+    icon = React.createElement(SDKImage, {
+      source: { uri },
+      style: { width: 48, height: 48, borderRadius: 12 },
+      resizeMode: 'cover',
+    });
+  } else {
+    icon = React.createElement(IconFallback, { name: mod.name });
+  }
 
   return React.createElement(
     SDKTouchableOpacity,
