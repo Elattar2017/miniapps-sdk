@@ -1,0 +1,16 @@
+{
+  "id": "com.vendor.{{MODULE_NAME}}",
+  "name": "{{MODULE_DISPLAY_NAME}}",
+  "version": "1.0.0",
+  "description": "A new SDK module",
+  "icon": "assets/icon.png",
+  "category": "utilities",
+  "entryScreen": "home",
+  "screens": ["home"],
+  "permissions": {
+    "apis": [],
+    "storage": false
+  },
+  "minSDKVersion": "1.0.0",
+  "signature": ""
+}

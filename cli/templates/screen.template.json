@@ -1,0 +1,42 @@
+{
+  "id": "home",
+  "title": "{{MODULE_DISPLAY_NAME}}",
+  "body": {
+    "type": "column",
+    "gap": 16,
+    "children": [
+      {
+        "type": "text",
+        "value": "Welcome to {{MODULE_DISPLAY_NAME}}",
+        "style": {
+          "fontSize": 24,
+          "fontWeight": "bold",
+          "color": "$theme.colors.primary",
+          "textAlign": "center",
+          "marginTop": 32
+        }
+      },
+      {
+        "type": "text",
+        "value": "Edit screens/home.screen.json to get started",
+        "style": {
+          "fontSize": 14,
+          "color": "$theme.colors.textSecondary",
+          "textAlign": "center"
+        }
+      },
+      {
+        "type": "button",
+        "label": "Get Started",
+        "variant": "primary",
+        "onPress": {
+          "action": "navigate",
+          "screen": "home"
+        },
+        "style": {
+          "marginTop": 24
+        }
+      }
+    ]
+  }
+}
