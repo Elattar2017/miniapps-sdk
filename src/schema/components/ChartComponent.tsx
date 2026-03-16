@@ -1618,18 +1618,20 @@ function renderGaugeChart(
 
   const diameter = Math.min(chartHeight, 150);
   const radius = diameter / 2;
-  const dotSize = Math.max(diameter * 0.07, 3);
+  const strokeWidth = Math.max(diameter * 0.08, 6);
 
-  // 270° ring gauge using segmented dots
+  // 270° ring gauge using overlapping capsule segments for a smooth arc
   const totalAngle = 270;
-  const startAngle = 135; // gap at bottom-left, matching web SVG design
-  const segmentCount = 54;
+  const startAngle = 135; // gap at bottom-left
+  const segmentCount = 90; // high count for smooth appearance
   const segmentAngle = totalAngle / segmentCount;
   const filledSegments = Math.round(fraction * segmentCount);
 
-  // Build dot segments positioned via trigonometry
+  // Build capsule segments positioned via trigonometry
   const segments: React.ReactElement[] = [];
-  const trackRadius = radius - dotSize * 2;
+  const trackRadius = radius - strokeWidth * 1.5;
+  // Each segment is a small rotated capsule that overlaps its neighbor
+  const capsuleLength = (2 * Math.PI * trackRadius * segmentAngle) / 360 + 2; // slight overlap
   for (let i = 0; i < segmentCount; i++) {
     const angle = startAngle + i * segmentAngle;
     const rad = (angle * Math.PI) / 180;
@@ -1642,12 +1644,13 @@ function renderGaugeChart(
         key: `seg-${i}`,
         style: {
           position: 'absolute' as const,
-          left: cx - dotSize / 2,
-          top: cy - dotSize / 2,
-          width: dotSize,
-          height: dotSize,
-          borderRadius: dotSize / 2,
-          backgroundColor: isFilled ? gaugeColor : (textSecondaryColor + '25'),
+          left: cx - capsuleLength / 2,
+          top: cy - strokeWidth / 2,
+          width: capsuleLength,
+          height: strokeWidth,
+          borderRadius: strokeWidth / 2,
+          backgroundColor: isFilled ? gaugeColor : (textSecondaryColor + '20'),
+          transform: [{ rotate: `${angle}deg` }],
         },
       }),
     );
@@ -1853,7 +1856,108 @@ export const ChartComponent: React.FC<SchemaComponentProps> = ({ node, context }
     );
   }
 
-  // Guard: empty or non-array data
+  // Loading state: data not yet available.
+  // When the API is still fetching, the expression "$data.monthly" stays as an
+  // unresolved string (SchemaInterpreter only replaces it when the result is an array).
+  // So check for: undefined, null, or a string that looks like an expression.
+  const isDataLoading = rawChartData === undefined
+    || rawChartData === null
+    || (typeof rawChartData === 'string' && rawChartData.startsWith('$'));
+  if (isDataLoading) {
+    const skelColor = textSecondaryColor + '15';
+    const skelColorDark = textSecondaryColor + '22';
+    const contentHeight = (configuredHeight || 200) - 80;
+    const loadingStyle: Record<string, unknown> = {
+      borderWidth: 1,
+      borderColor,
+      borderRadius: designTokens.borderRadius.default,
+      padding: 24,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      minHeight: configuredHeight || 200,
+      ...(node.style ?? {}),
+    };
+
+    let skeletonContent: React.ReactElement;
+
+    if (chartType === 'bar') {
+      const isHorizontal = (node.chartOrientation ?? 'horizontal') === 'horizontal';
+      const bars: React.ReactElement[] = [];
+      for (let i = 0; i < 6; i++) {
+        const size = 30 + ((i * 37) % 80);
+        bars.push(React.createElement(SDKView, { key: `sb-${i}`, style: isHorizontal ? {
+          width: `${20 + ((i * 23) % 60)}%`, height: 14, backgroundColor: i % 2 === 0 ? skelColor : skelColorDark,
+          borderRadius: 4, marginVertical: 3,
+        } : {
+          flex: 1, height: size, backgroundColor: i % 2 === 0 ? skelColor : skelColorDark,
+          borderRadius: 4, marginHorizontal: 3,
+        }}));
+      }
+      skeletonContent = React.createElement(SDKView, {
+        style: isHorizontal
+          ? { flexDirection: 'column' as const, justifyContent: 'center' as const, height: contentHeight, width: '100%', paddingHorizontal: 8 }
+          : { flexDirection: 'row' as const, alignItems: 'flex-end' as const, height: contentHeight, width: '100%', paddingHorizontal: 8 },
+      }, ...bars);
+
+    } else if (chartType === 'line') {
+      // Line skeleton: horizontal lines suggesting a grid + a wavy path
+      const lines: React.ReactElement[] = [];
+      for (let i = 0; i < 4; i++) {
+        lines.push(React.createElement(SDKView, { key: `sl-${i}`, style: {
+          width: '100%', height: 1, backgroundColor: skelColor, marginBottom: contentHeight / 4 - 1,
+        }}));
+      }
+      // Dots suggesting data points along a curve
+      const dots: React.ReactElement[] = [];
+      const dotPositions = [0.7, 0.4, 0.55, 0.3, 0.5, 0.25];
+      for (let i = 0; i < dotPositions.length; i++) {
+        dots.push(React.createElement(SDKView, { key: `sd-${i}`, style: {
+          position: 'absolute' as const,
+          left: `${10 + i * 16}%`,
+          top: `${dotPositions[i] * 100}%`,
+          width: 8, height: 8, borderRadius: 4, backgroundColor: skelColorDark,
+        }}));
+      }
+      skeletonContent = React.createElement(SDKView, {
+        style: { height: contentHeight, width: '100%', position: 'relative' as const },
+      }, ...lines, ...dots);
+
+    } else if (chartType === 'pie' || chartType === 'donut') {
+      // Pie/donut skeleton: concentric circles
+      const size = Math.min(contentHeight, 120);
+      const innerSize = chartType === 'donut' ? size * 0.55 : 0;
+      skeletonContent = React.createElement(SDKView, {
+        style: { width: size, height: size, borderRadius: size / 2, backgroundColor: skelColor, alignItems: 'center' as const, justifyContent: 'center' as const },
+      },
+        // Segment dividers
+        React.createElement(SDKView, { style: { position: 'absolute' as const, width: 2, height: size / 2, backgroundColor: borderColor, top: 0, left: size / 2 - 1 } }),
+        React.createElement(SDKView, { style: { position: 'absolute' as const, width: size / 2, height: 2, backgroundColor: borderColor, top: size / 2 - 1, left: 0 } }),
+        // Inner hole for donut
+        innerSize > 0 ? React.createElement(SDKView, { style: {
+          width: innerSize, height: innerSize, borderRadius: innerSize / 2,
+          backgroundColor: designTokens.colors.background ?? '#FFFFFF',
+        }}) : null,
+      );
+
+    } else {
+      // Generic fallback: pulsing placeholder block
+      skeletonContent = React.createElement(SDKView, {
+        style: { width: '80%', height: contentHeight * 0.6, backgroundColor: skelColor, borderRadius: 8 },
+      });
+    }
+
+    return React.createElement(SDKView, { style: loadingStyle },
+      node.chartTitle ? React.createElement(SDKText, {
+        style: { fontSize: 14, fontWeight: '700', color: textColor, marginBottom: 12, textAlign: 'center' as const },
+      }, typeof node.chartTitle === 'string' && node.chartTitle.startsWith('$') ? '' : node.chartTitle) : null,
+      skeletonContent,
+      React.createElement(SDKText, {
+        style: { fontSize: 12, color: textSecondaryColor, marginTop: 12, opacity: 0.6 },
+      }, 'Loading...'),
+    );
+  }
+
+  // Guard: loaded but empty or non-array data
   if (!Array.isArray(rawChartData) || rawChartData.length === 0) {
     const emptyStyle: Record<string, unknown> = {
       borderWidth: 1,

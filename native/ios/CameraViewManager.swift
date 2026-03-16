@@ -129,22 +129,40 @@ class SDKCameraView: UIView {
   private func setupCamera() {
     teardownCamera()
 
+    // Clear any leftover placeholder from a previous error state
+    viewWithTag(999)?.removeFromSuperview()
+    backgroundColor = .clear
+
+    NSLog("[SDKCameraView] setupCamera: facing=%@, window=%@", _cameraFacing, window != nil ? "yes" : "nil")
+
     let status = AVCaptureDevice.authorizationStatus(for: .video)
+    NSLog("[SDKCameraView] authStatus=%d (0=notDetermined, 1=restricted, 2=denied, 3=authorized)", status.rawValue)
+
     switch status {
     case .notDetermined:
+      showPlaceholder("Requesting camera...")
       AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-        if granted {
-          DispatchQueue.main.async { self?.startCameraSession() }
-        } else {
-          DispatchQueue.main.async { self?.showPlaceholder("Camera access denied") }
+        NSLog("[SDKCameraView] requestAccess callback: granted=%@", granted ? "YES" : "NO")
+        DispatchQueue.main.async {
+          self?.viewWithTag(999)?.removeFromSuperview()
+          self?.backgroundColor = .clear
+          if granted {
+            self?.startCameraSession()
+          } else {
+            self?.showPlaceholder("Camera access denied — enable in Settings")
+          }
         }
       }
       return
     case .authorized:
       startCameraSession()
-    default:
-      showPlaceholder("Camera access denied")
-      return
+    case .denied:
+      showPlaceholder("Camera denied — tap to open Settings")
+      addSettingsTapGesture()
+    case .restricted:
+      showPlaceholder("Camera restricted by device policy")
+    @unknown default:
+      showPlaceholder("Camera unavailable (status \(status.rawValue))")
     }
   }
 
@@ -164,10 +182,26 @@ class SDKCameraView: UIView {
       let session = AVCaptureSession()
 
       let position: AVCaptureDevice.Position = facing == "front" ? .front : .back
-      guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position) else {
-        DispatchQueue.main.async { self?.showPlaceholder("Camera not available") }
+      NSLog("[SDKCameraView] startCameraSession: facing=%@, position=%d, gen=%d", facing, position.rawValue, expectedGeneration)
+
+      // Use DiscoverySession for robust camera detection (handles TrueDepth, ultrawide, etc.)
+      let deviceTypes: [AVCaptureDevice.DeviceType] = [
+        .builtInWideAngleCamera,
+        .builtInTrueDepthCamera,
+      ]
+      let discoverySession = AVCaptureDevice.DiscoverySession(
+        deviceTypes: deviceTypes,
+        mediaType: .video,
+        position: position
+      )
+      guard let device = discoverySession.devices.first else {
+        NSLog("[SDKCameraView] ERROR: No camera device for position %d. Available: %@",
+              position.rawValue,
+              AVCaptureDevice.DiscoverySession(deviceTypes: deviceTypes, mediaType: .video, position: .unspecified).devices.map { $0.localizedName })
+        DispatchQueue.main.async { self?.showPlaceholder("No \(facing) camera found") }
         return
       }
+      NSLog("[SDKCameraView] Camera device: %@", device.localizedName)
 
       session.beginConfiguration()
       session.sessionPreset = .photo
@@ -210,6 +244,10 @@ class SDKCameraView: UIView {
           }
           return
         }
+
+        // Clear any placeholder before showing live feed
+        self.viewWithTag(999)?.removeFromSuperview()
+        self.backgroundColor = .clear
 
         let preview = AVCaptureVideoPreviewLayer(session: session)
         preview.videoGravity = .resizeAspectFill
@@ -277,6 +315,20 @@ class SDKCameraView: UIView {
       label.centerXAnchor.constraint(equalTo: centerXAnchor),
       label.centerYAnchor.constraint(equalTo: centerYAnchor),
     ])
+  }
+
+  private func addSettingsTapGesture() {
+    // Remove existing gesture recognizers to avoid duplicates
+    gestureRecognizers?.forEach { removeGestureRecognizer($0) }
+    let tap = UITapGestureRecognizer(target: self, action: #selector(openSettings))
+    addGestureRecognizer(tap)
+    isUserInteractionEnabled = true
+  }
+
+  @objc private func openSettings() {
+    if let url = URL(string: UIApplication.openSettingsURLString) {
+      UIApplication.shared.open(url)
+    }
   }
 
   private func updateMirror() {
