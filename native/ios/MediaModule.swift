@@ -75,7 +75,7 @@ class MediaModule: NSObject {
         picker.mediaTypes = ["public.image"]
       }
 
-      guard let rootVC = UIApplication.shared.keyWindow?.rootViewController else {
+      guard let rootVC = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first?.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
         reject("MEDIA_ERROR", "No root view controller available", nil)
         return
       }
@@ -112,7 +112,7 @@ class MediaModule: NSObject {
         let picker = PHPickerViewController(configuration: config)
         picker.delegate = self
 
-        guard let rootVC = UIApplication.shared.keyWindow?.rootViewController else {
+        guard let rootVC = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first?.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
           reject("MEDIA_ERROR", "No root view controller available", nil)
           return
         }
@@ -125,7 +125,7 @@ class MediaModule: NSObject {
         picker.delegate = self
         picker.allowsEditing = false
 
-        guard let rootVC = UIApplication.shared.keyWindow?.rootViewController else {
+        guard let rootVC = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first?.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
           reject("MEDIA_ERROR", "No root view controller available", nil)
           return
         }
@@ -173,8 +173,9 @@ class MediaModule: NSObject {
         }
 
         let quality = options["quality"] as? Double ?? 0.8
-        let maxDimension = options["maxDimension"] as? Int
-        let includeBase64 = options["includeBase64"] as? Bool ?? false
+        // NSNumber from JSONSerialization may not cast directly to Int — use intValue
+        let maxDimension = (options["maxDimension"] as? NSNumber)?.intValue
+        let includeBase64 = (options["includeBase64"] as? NSNumber)?.boolValue ?? options["includeBase64"] as? Bool ?? false
 
         let processedImage = self.resizeIfNeeded(image, maxDimension: maxDimension)
         let result = self.buildMediaResult(from: processedImage, quality: quality, includeBase64: includeBase64, source: "viewCapture")
@@ -322,8 +323,8 @@ extension MediaModule: UIImagePickerControllerDelegate, UINavigationControllerDe
     }
 
     let quality = pendingOptions["quality"] as? Double ?? 0.8
-    let maxDimension = pendingOptions["maxDimension"] as? Int
-    let includeBase64 = pendingOptions["includeBase64"] as? Bool ?? false
+    let maxDimension = (pendingOptions["maxDimension"] as? NSNumber)?.intValue
+    let includeBase64 = (pendingOptions["includeBase64"] as? NSNumber)?.boolValue ?? false
 
     let processedImage = resizeIfNeeded(image, maxDimension: maxDimension)
     let result = buildMediaResult(from: processedImage, quality: quality, includeBase64: includeBase64, source: "capture")
@@ -359,8 +360,8 @@ extension MediaModule: PHPickerViewControllerDelegate {
     }
 
     let quality = pendingOptions["quality"] as? Double ?? 0.8
-    let maxDimension = pendingOptions["maxDimension"] as? Int
-    let includeBase64 = pendingOptions["includeBase64"] as? Bool ?? false
+    let maxDimension = (pendingOptions["maxDimension"] as? NSNumber)?.intValue
+    let includeBase64 = (pendingOptions["includeBase64"] as? NSNumber)?.boolValue ?? false
     let multiple = pendingOptions["multiple"] as? Bool ?? false
 
     let group = DispatchGroup()

@@ -31,29 +31,24 @@ function tryResolveNativeView(): React.ComponentType<CameraViewProps> | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const RN = require('react-native');
-    const { requireNativeComponent, UIManager } = RN;
+    const { requireNativeComponent, Platform } = RN;
 
-    // Check if the native view is actually registered before calling requireNativeComponent.
-    // requireNativeComponent doesn't throw — it returns a component that crashes at render time
-    // with "View config not found for component 'SDKCameraView'" if not registered.
-    const hasViewConfig =
-      UIManager.getViewManagerConfig?.('SDKCameraView') ??
-      UIManager['SDKCameraView'];
-
-    if (!hasViewConfig) {
-      adapterLogger.debug('SDKCameraView not registered in UIManager, using mock');
+    if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
       return null;
     }
 
+    // On RN 0.84 New Architecture (bridgeless), UIManager.getViewManagerConfig
+    // does NOT reflect Fabric-registered components. Skip that check entirely.
+    // The CameraErrorBoundary in CameraViewComponent catches render failures.
     if (typeof requireNativeComponent === 'function') {
       const NativeView = requireNativeComponent('SDKCameraView');
       if (NativeView) {
-        adapterLogger.info('Native SDKCameraView resolved');
+        adapterLogger.info('Native SDKCameraView resolved via requireNativeComponent');
         return NativeView as React.ComponentType<CameraViewProps>;
       }
     }
-  } catch {
-    // Not in RN environment
+  } catch (err) {
+    adapterLogger.warn('Failed to resolve native SDKCameraView', { error: String(err) });
   }
   return null;
 }

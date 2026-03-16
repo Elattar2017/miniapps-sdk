@@ -824,17 +824,25 @@ export function ScreenRenderer({
             screenLogger.warn('show_toast missing message', { moduleId });
             break;
           }
+          // Build expression context with $t for i18n support in toast messages
+          const toastExprCtx: Record<string, unknown> = {
+            data: dataRef.current, state: moduleStateRef.current, user: { id: config.userId, tenantId: config.tenantId },
+            $t: (key: string) => {
+              if (moduleId) {
+                const namespaced = `${moduleId}:${key}`;
+                const result = i18n.t(namespaced);
+                if (result !== namespaced) return result;
+              }
+              return i18n.t(key);
+            },
+          };
           let resolvedMessage = toastMessage;
           if (expressionEngine.isExpression(toastMessage)) {
-            resolvedMessage = expressionEngine.resolveExpressions(toastMessage, {
-              data: dataRef.current, state: moduleStateRef.current, user: { id: config.userId, tenantId: config.tenantId },
-            });
+            resolvedMessage = expressionEngine.resolveExpressions(toastMessage, toastExprCtx);
           }
           let resolvedTitle = action.title;
           if (resolvedTitle && expressionEngine.isExpression(resolvedTitle)) {
-            resolvedTitle = expressionEngine.resolveExpressions(resolvedTitle, {
-              data: dataRef.current, state: moduleStateRef.current, user: { id: config.userId, tenantId: config.tenantId },
-            });
+            resolvedTitle = expressionEngine.resolveExpressions(resolvedTitle, toastExprCtx);
           }
 
           if (toastTimerRef.current) clearTimeout(toastTimerRef.current);

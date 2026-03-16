@@ -28,10 +28,30 @@
  * @module schema/components/CameraViewComponent
  */
 
-import React, { useMemo } from 'react';
-import { SDKView } from '../../adapters';
-import { getCameraView } from '../../adapters/CameraViewAdapter';
+import React, { useMemo, Component } from 'react';
+import { SDKView, SDKText } from '../../adapters';
+import { getCameraView, MockCameraView } from '../../adapters/CameraViewAdapter';
 import type { SchemaComponentProps } from '../../types';
+
+/** Error boundary to prevent native camera crashes from killing the app */
+class CameraErrorBoundary extends Component<
+  { children: React.ReactNode; cameraFacing: string },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) {
+      return React.createElement(MockCameraView, {
+        cameraFacing: this.props.cameraFacing as 'front' | 'back',
+        style: { width: '100%', height: '100%' },
+      });
+    }
+    return this.props.children;
+  }
+}
 
 export const CameraViewComponent: React.FC<SchemaComponentProps> = ({ node, context, children }) => {
   const cameraFacing = (node.cameraFacing ?? node.props?.cameraFacing ?? 'back') as string;
@@ -101,13 +121,15 @@ export const CameraViewComponent: React.FC<SchemaComponentProps> = ({ node, cont
       accessibilityRole: 'none' as const,
       accessibilityLabel: `Camera viewfinder (${resolvedFacing})`,
     },
-    // Camera feed
-    React.createElement(CameraFeed, {
-      cameraId: node.id,
-      cameraFacing: resolvedFacing,
-      mirror: shouldMirror,
-      style: feedStyle,
-    }),
+    // Camera feed — wrapped in error boundary to prevent native crashes
+    React.createElement(CameraErrorBoundary, { cameraFacing: resolvedFacing },
+      React.createElement(CameraFeed, {
+        cameraId: node.id,
+        cameraFacing: resolvedFacing,
+        mirror: shouldMirror,
+        style: feedStyle,
+      }),
+    ),
     // Overlay container for children (positioned on top of feed)
     children
       ? React.createElement(
