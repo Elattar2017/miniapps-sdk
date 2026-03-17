@@ -55,6 +55,14 @@ const EXPRESSION_PROPS: ReadonlyArray<keyof SchemaNode> = [
   'badge',
   'activeTab',
   'isOpen',
+  // Stepper
+  'nextLabel',
+  'prevLabel',
+  'submitLabel',
+  'completedIcon',
+  // Calendar
+  'timeSlotsTitle',
+  'slotEmptyMessage',
 ];
 
 export class SchemaInterpreter implements ISchemaInterpreter {
