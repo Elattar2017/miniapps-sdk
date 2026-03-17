@@ -211,6 +211,64 @@ export interface SchemaNode {
   showHandle?: boolean;       // Drag handle indicator (default: true)
   dismissable?: boolean;      // Backdrop/back dismisses (default: true)
   onDismiss?: ActionConfig;   // Fired on backdrop tap / back button
+
+  // Stepper components
+  activeStep?: number | string;
+  showStepNumbers?: boolean;
+  allowSkip?: boolean;
+  showNavButtons?: boolean;
+  nextLabel?: string;
+  prevLabel?: string;
+  submitLabel?: string;
+  linear?: boolean;
+  completedIcon?: string;
+  onStepChange?: ActionConfig;
+  onComplete?: ActionConfig;
+  optional?: boolean;
+  validateFields?: string[] | string;
+  indicatorSize?: string;
+  connectorStyle?: string;
+  indicatorColor?: string;
+  connectorColor?: string;
+  buttonVariant?: string;
+
+  // Calendar component
+  selectionMode?: 'single' | 'range' | 'multiple';
+  minDate?: string;
+  maxDate?: string;
+  firstDayOfWeek?: number;
+  markedDates?: string;         // expression resolving to string[] or object
+  disabledDates?: string;       // expression resolving to string[]
+  showHeader?: boolean;
+  showWeekNumbers?: boolean;
+  showToday?: boolean;
+  selectedColor?: string;
+  todayColor?: string;
+  markedColor?: string;
+  headerColor?: string;
+  dayNameColor?: string;
+  onMonthChange?: ActionConfig;
+  showAvailability?: boolean;
+  availabilityData?: string;    // expression resolving to { [date]: { status, slots } }
+  availableColor?: string;
+  fewLeftColor?: string;
+  bookedColor?: string;
+  showTimeSlots?: boolean;
+  timeSlots?: string;           // expression resolving to slot[]
+  timeSlotsTitle?: string;
+  slotColumns?: number;
+  slotHeight?: number;
+  slotGap?: number;
+  slotFontSize?: number;
+  slotSelectedColor?: string;
+  slotSelectedTextColor?: string;
+  slotAvailableColor?: string;
+  slotAvailableTextColor?: string;
+  slotUnavailableColor?: string;
+  slotUnavailableTextColor?: string;
+  slotBorderRadius?: number;
+  slotEmptyMessage?: string;
+  onSlotSelect?: ActionConfig;
 }
 
 /** Configuration for a single chart data series */

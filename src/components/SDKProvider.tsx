@@ -67,6 +67,9 @@ import {
   TabNavigatorComponent,
   TabPaneComponent,
   SafeAreaViewComponent,
+  StepperComponent,
+  StepComponent,
+  CalendarComponent,
 } from '../schema/components';
 import { SDKView, SDKText, SDKActivityIndicator } from '../adapters';
 import { createSDKNavigator, SDKNavigationContainer } from '../adapters/NavigationAdapter';
@@ -145,6 +148,9 @@ function buildComponentRegistry(): ComponentRegistry {
     top_tab_navigator: TabNavigatorComponent,
     tab_pane: TabPaneComponent,
     safe_area_view: SafeAreaViewComponent,
+    stepper: StepperComponent,
+    step: StepComponent,
+    calendar: CalendarComponent,
   };
 
   for (const [type, component] of Object.entries(componentMap)) {
