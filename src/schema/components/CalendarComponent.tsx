@@ -6,7 +6,7 @@
  * State: __calendar_month_{nodeId} for viewed month, value binding for selection.
  */
 
-import React, { useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import { SDKView, SDKText, SDKTouchableOpacity } from '../../adapters';
 import { iconRegistry } from '../icons';
 import type { SchemaComponentProps } from '../../types';
@@ -73,7 +73,7 @@ interface TimeSlot {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export const CalendarComponent: React.FC<SchemaComponentProps> = ({ node, context }) => {
+export const CalendarComponent: React.FC<SchemaComponentProps> = ({ node, context, children: templateChildren }) => {
   const nodeId = node.id ?? 'cal';
   const { colors, spacing, borderRadius: tokenRadius } = context.designTokens;
   const primaryColor = colors.primary ?? '#0066CC';
@@ -115,6 +115,13 @@ export const CalendarComponent: React.FC<SchemaComponentProps> = ({ node, contex
   const slotUnavailableTextColor = node.slotUnavailableTextColor ?? (node.props?.slotUnavailableTextColor as string | undefined) ?? '#9CA3AF';
   const slotBorderRadius = node.slotBorderRadius ?? (node.props?.slotBorderRadius as number | undefined) ?? 8;
   const slotEmptyMessage = node.slotEmptyMessage ?? (node.props?.slotEmptyMessage as string | undefined) ?? 'No slots available';
+
+  // Slot loading props (declarative — configurable in builder)
+  const slotLoadingStyle = (node.slotLoadingStyle ?? (node.props?.slotLoadingStyle as string | undefined) ?? 'spinner') as string;
+  const slotLoadingColor = node.slotLoadingColor ?? (node.props?.slotLoadingColor as string | undefined) ?? primaryColor;
+  const slotLoadingText = node.slotLoadingText ?? (node.props?.slotLoadingText as string | undefined) ?? 'Loading available times...';
+
+  // NOTE: slot loading state hooks are defined AFTER selectedDates (below)
 
   // Marked & disabled dates
   const markedDates = useMemo<Set<string>>(() => {
@@ -197,6 +204,38 @@ export const CalendarComponent: React.FC<SchemaComponentProps> = ({ node, contex
     return '';
   }, [currentValue]);
 
+  // ── Slot loading state (must be after selectedDates is defined) ───────────
+  const timeSlotsLoading = useMemo(() => {
+    if (!showTimeSlots) return false;
+    if (selectedDates.size === 0) return false;
+    const rawProp = node.timeSlots ?? node.props?.timeSlots;
+    if (typeof rawProp === 'string' && rawProp.startsWith('$')) return true;
+    if (rawProp === null || rawProp === undefined) return true;
+    return false;
+  }, [showTimeSlots, selectedDates.size, node.timeSlots, node.props?.timeSlots]);
+
+  const prevSelectedDateRef = useRef<string>('');
+  const [slotsRefreshing, setSlotsRefreshing] = useState(false);
+
+  useEffect(() => {
+    const currentDate = Array.from(selectedDates)[0] ?? '';
+    if (currentDate && currentDate !== prevSelectedDateRef.current) {
+      prevSelectedDateRef.current = currentDate;
+      setSlotsRefreshing(true);
+      const timer = setTimeout(() => setSlotsRefreshing(false), 5000);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [selectedDates]);
+
+  useEffect(() => {
+    if (Array.isArray(timeSlotsRaw) && slotsRefreshing) {
+      setSlotsRefreshing(false);
+    }
+  }, [timeSlotsRaw, slotsRefreshing]);
+
+  const isSlotsLoading = timeSlotsLoading || slotsRefreshing;
+
   // ── View month state ──────────────────────────────────────────────────────
   const monthStateKey = `__calendar_month_${nodeId}`;
   const viewMonthRaw = context.state[monthStateKey] as string | undefined;
@@ -255,10 +294,14 @@ export const CalendarComponent: React.FC<SchemaComponentProps> = ({ node, contex
     const key = `${newY}-${pad2(newM + 1)}`;
     context.onStateChange(monthStateKey, key);
     if (node.onMonthChange) {
-      context.onAction({
-        ...node.onMonthChange,
-        payload: { ...(node.onMonthChange.payload ?? {}), month: newM + 1, year: newY },
-      });
+      const eventPayload = { month: newM + 1, year: newY };
+      if (Array.isArray(node.onMonthChange)) {
+        for (const action of node.onMonthChange) {
+          context.onAction({ ...action, payload: { ...(action.payload ?? {}), ...eventPayload } });
+        }
+      } else {
+        context.onAction({ ...node.onMonthChange, payload: { ...(node.onMonthChange.payload ?? {}), ...eventPayload } });
+      }
     }
   }, [viewMonth, context, monthStateKey, node.onMonthChange]);
 
@@ -294,10 +337,14 @@ export const CalendarComponent: React.FC<SchemaComponentProps> = ({ node, contex
     }
     setValueState(newValue);
     if (node.onChange) {
-      context.onAction({
-        ...node.onChange,
-        payload: { ...(node.onChange.payload ?? {}), date: dateStr, value: newValue },
-      });
+      const eventPayload = { date: dateStr, value: newValue };
+      if (Array.isArray(node.onChange)) {
+        for (const action of node.onChange) {
+          context.onAction({ ...action, payload: { ...(action.payload ?? {}), ...eventPayload } });
+        }
+      } else {
+        context.onAction({ ...node.onChange, payload: { ...(node.onChange.payload ?? {}), ...eventPayload } });
+      }
     }
   }, [selectionMode, showTimeSlots, selectedTime, rangeInfo, selectedDates, setValueState, node.onChange, context]);
 
@@ -314,12 +361,50 @@ export const CalendarComponent: React.FC<SchemaComponentProps> = ({ node, contex
     }
     setValueState(newValue);
     if (node.onSlotSelect) {
-      context.onAction({
-        ...node.onSlotSelect,
-        payload: { ...(node.onSlotSelect.payload ?? {}), date: Array.from(selectedDates)[0] ?? '', time: slot.time, slot },
-      });
+      const eventPayload = { date: Array.from(selectedDates)[0] ?? '', time: slot.time, slot };
+      if (Array.isArray(node.onSlotSelect)) {
+        for (const action of node.onSlotSelect) {
+          context.onAction({ ...action, payload: { ...(action.payload ?? {}), ...eventPayload } });
+        }
+      } else {
+        context.onAction({ ...node.onSlotSelect, payload: { ...(node.onSlotSelect.payload ?? {}), ...eventPayload } });
+      }
     }
   }, [selectionMode, selectedDates, rangeInfo, setValueState, node.onSlotSelect, context]);
+
+  // Handler for template-rendered slot presses (receives slot data object)
+  const handleTemplateSlotPress = useCallback((slotData: Record<string, unknown>, timeFieldName: string) => {
+    const timeVal = String(slotData[timeFieldName] ?? '');
+    let newValue: unknown;
+    if (selectionMode === 'single') {
+      const dateStr = Array.from(selectedDates)[0] ?? '';
+      newValue = { date: dateStr, time: timeVal };
+    } else if (selectionMode === 'range') {
+      newValue = { start: rangeInfo.start, end: rangeInfo.end, time: timeVal };
+    } else {
+      newValue = { dates: Array.from(selectedDates), time: timeVal };
+    }
+    setValueState(newValue);
+    if (node.onSlotSelect) {
+      const eventPayload = { date: Array.from(selectedDates)[0] ?? '', time: timeVal, slot: slotData };
+      if (Array.isArray(node.onSlotSelect)) {
+        for (const action of node.onSlotSelect) {
+          context.onAction({ ...action, payload: { ...(action.payload ?? {}), ...eventPayload } });
+        }
+      } else {
+        context.onAction({ ...node.onSlotSelect, payload: { ...(node.onSlotSelect.payload ?? {}), ...eventPayload } });
+      }
+    }
+  }, [selectionMode, selectedDates, rangeInfo, setValueState, node.onSlotSelect, context]);
+
+  // ── Detect time_slot template ────────────────────────────────────────────
+  const hasSlotTemplate = node._hasSlotTemplate === true;
+  const slotTemplateNode = useMemo(() => {
+    if (!node.children) return null;
+    return (node.children as import('../../types').SchemaNode[]).find(c => c.type === 'time_slot') ?? null;
+  }, [node.children]);
+  const templateTimeField = (slotTemplateNode?.timeField ?? slotTemplateNode?.props?.timeField ?? 'time') as string;
+  const templateAvailableField = (slotTemplateNode?.availableField ?? slotTemplateNode?.props?.availableField ?? 'available') as string;
 
   // ── Day name headers ──────────────────────────────────────────────────────
   const dayNames = useMemo(() => {
@@ -622,7 +707,7 @@ export const CalendarComponent: React.FC<SchemaComponentProps> = ({ node, contex
 
       if (isSelected || isRangeStart || isRangeEnd) {
         circleStyle.backgroundColor = selectedColor;
-        textColor = '#FFFFFF';
+        textColor = (node.selectedTextColor ?? node.props?.selectedTextColor ?? '#FFFFFF') as string;
         fontWeight = '600';
       } else if (isToday && showToday && inMonth) {
         const todayBg = todayColor ?? hexAlpha(primaryColor, 0.12);
@@ -634,8 +719,15 @@ export const CalendarComponent: React.FC<SchemaComponentProps> = ({ node, contex
       if (!inMonth) {
         circleStyle.opacity = outsideDayOpacity;
       }
+      const isBookedDate = showAvailability && availabilityData && availabilityData[date]?.status === 'booked';
       if (disabled && inMonth) {
-        circleStyle.opacity = 0.35;
+        if (isBookedDate) {
+          // Booked: gray text, NO opacity — keeps red dot vivid
+          textColor = (node.bookedTextColor ?? node.props?.bookedTextColor ?? '#C9C9C9') as string;
+          fontWeight = '400';
+        } else {
+          circleStyle.opacity = 0.35;
+        }
       }
 
       // Day number text
@@ -657,9 +749,9 @@ export const CalendarComponent: React.FC<SchemaComponentProps> = ({ node, contex
           React.createElement(SDKView, {
             key: 'avail-dot',
             style: {
-              width: 5,
-              height: 5,
-              borderRadius: 2.5,
+              width: 6,
+              height: 6,
+              borderRadius: 3,
               backgroundColor: availDotColor,
               marginHorizontal: 1,
             },
@@ -776,7 +868,97 @@ export const CalendarComponent: React.FC<SchemaComponentProps> = ({ node, contex
       }, titleText),
     );
 
-    if (slots.length === 0) {
+    if (isSlotsLoading) {
+      // Loading overlay — style driven by slotLoadingStyle prop
+      const loadingChildren: React.ReactElement[] = [];
+
+      if (slotLoadingStyle === 'skeleton') {
+        // Skeleton placeholder chips
+        const skelRows: React.ReactElement[] = [];
+        for (let si = 0; si < slotColumns * 2; si++) {
+          skelRows.push(
+            React.createElement(SDKView, {
+              key: `skel-${si}`,
+              style: {
+                flex: 1,
+                height: slotHeight,
+                backgroundColor: (colors.border ?? '#E5E7EB') + '40',
+                borderRadius: slotBorderRadius,
+                margin: slotGap / 2,
+                minWidth: `${Math.floor(90 / slotColumns)}%`,
+              },
+            }),
+          );
+        }
+        loadingChildren.push(
+          React.createElement(SDKView, {
+            key: 'skel-grid',
+            style: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, justifyContent: 'flex-start' as const },
+          }, ...skelRows),
+        );
+      } else if (slotLoadingStyle === 'dots') {
+        // Animated dots
+        const dots: React.ReactElement[] = [];
+        for (let di = 0; di < 3; di++) {
+          dots.push(
+            React.createElement(SDKView, {
+              key: `dot-${di}`,
+              style: {
+                width: 8, height: 8, borderRadius: 4,
+                backgroundColor: slotLoadingColor,
+                marginHorizontal: 4,
+                opacity: 0.3 + di * 0.25,
+              },
+            }),
+          );
+        }
+        loadingChildren.push(
+          React.createElement(SDKView, {
+            key: 'dots-row',
+            style: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, paddingVertical: 12 },
+          }, ...dots),
+        );
+      } else {
+        // Default: spinner (SDKActivityIndicator)
+        loadingChildren.push(
+          React.createElement(SDKView, {
+            key: 'spinner',
+            style: {
+              width: 28, height: 28, borderRadius: 14,
+              borderWidth: 3,
+              borderColor: (colors.border ?? '#E5E7EB') + '60',
+              borderTopColor: slotLoadingColor,
+              alignSelf: 'center' as const,
+            },
+          }),
+        );
+      }
+
+      // Loading text
+      loadingChildren.push(
+        React.createElement(SDKText, {
+          key: 'loading-text',
+          style: {
+            fontSize: 13,
+            color: colors.textSecondary ?? '#9CA3AF',
+            textAlign: 'center' as const,
+            marginTop: 8,
+          },
+        }, slotLoadingText),
+      );
+
+      elements.push(
+        React.createElement(SDKView, {
+          key: 'slot-loading',
+          style: {
+            paddingVertical: 20,
+            alignItems: 'center' as const,
+            justifyContent: 'center' as const,
+            minHeight: slotHeight * 2 + slotGap * 3,
+          },
+        }, ...loadingChildren),
+      );
+    } else if (slots.length === 0) {
       // Empty message
       elements.push(
         React.createElement(
@@ -797,8 +979,93 @@ export const CalendarComponent: React.FC<SchemaComponentProps> = ({ node, contex
           }, slotEmptyMessage),
         ),
       );
+    } else if (hasSlotTemplate && templateChildren) {
+      // ── Template-rendered slots (custom content from time_slot template) ──
+      const templateChildArr = React.Children.toArray(templateChildren) as React.ReactElement[];
+      const tmplSlotRows: React.ReactElement[][] = [];
+      let tmplCurrentRow: React.ReactElement[] = [];
+
+      for (let si = 0; si < templateChildArr.length; si++) {
+        const child = templateChildArr[si];
+        // Extract slot data from the enriched context to determine chip styling
+        const slotData = slots[si] as unknown as Record<string, unknown> | undefined;
+        const timeVal = slotData ? String(slotData[templateTimeField] ?? '') : '';
+        const availVal = slotData ? slotData[templateAvailableField] : true;
+        const isAvail = typeof availVal === 'boolean' ? availVal : (typeof availVal === 'number' ? availVal > 0 : true);
+        const isSlotSelected = timeVal === selectedTime;
+        const remaining = slotData && typeof slotData.remaining === 'number' ? slotData.remaining : undefined;
+        const isFewLeft = remaining !== undefined && remaining > 0 && remaining <= 2;
+
+        // Chip container styling (calendar controls the wrapper)
+        let chipBg = slotAvailableColor;
+        if (isSlotSelected) { chipBg = slotSelectedColor; }
+        else if (!isAvail) { chipBg = slotUnavailableColor; }
+        else if (isFewLeft) { chipBg = fewLeftColor; }
+
+        const chipStyle: Record<string, unknown> = {
+          flex: 1,
+          minHeight: slotHeight,
+          borderRadius: slotBorderRadius,
+          backgroundColor: chipBg,
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingVertical: 6,
+          paddingHorizontal: 4,
+        };
+        if (!isAvail && !isSlotSelected) {
+          chipStyle.opacity = 0.6;
+        }
+
+        const chipEl = isAvail
+          ? React.createElement(
+              SDKTouchableOpacity,
+              {
+                key: `slot-tmpl-wrap-${si}`,
+                onPress: () => slotData && handleTemplateSlotPress(slotData, templateTimeField),
+                activeOpacity: 0.7,
+                style: chipStyle,
+                accessibilityRole: 'button' as const,
+              },
+              child,
+            )
+          : React.createElement(
+              SDKView,
+              { key: `slot-tmpl-wrap-${si}`, style: chipStyle },
+              child,
+            );
+
+        tmplCurrentRow.push(chipEl);
+
+        if (tmplCurrentRow.length === slotColumns || si === templateChildArr.length - 1) {
+          while (tmplCurrentRow.length < slotColumns) {
+            tmplCurrentRow.push(
+              React.createElement(SDKView, { key: `pad-${tmplCurrentRow.length}`, style: { flex: 1 } }),
+            );
+          }
+          tmplSlotRows.push(tmplCurrentRow);
+          tmplCurrentRow = [];
+        }
+      }
+
+      for (let ri = 0; ri < tmplSlotRows.length; ri++) {
+        elements.push(
+          React.createElement(
+            SDKView,
+            {
+              key: `srow-tmpl-${ri}`,
+              style: {
+                flexDirection: 'row' as const,
+                gap: slotGap,
+                marginBottom: slotGap,
+                paddingHorizontal: 4,
+              },
+            },
+            ...tmplSlotRows[ri],
+          ),
+        );
+      }
     } else {
-      // Slot grid
+      // ── Hardcoded slot grid (fallback / backward compatible) ──────────────
       const slotRows: React.ReactElement[][] = [];
       let currentRow: React.ReactElement[] = [];
       for (let si = 0; si < slots.length; si++) {
@@ -821,7 +1088,7 @@ export const CalendarComponent: React.FC<SchemaComponentProps> = ({ node, contex
             chipText = slotAvailableTextColor ?? colors.text ?? '#374151';
           } else if (slot.remaining >= 1) {
             chipBg = fewLeftColor;
-            chipText = '#FFFFFF';
+            chipText = slotSelectedTextColor;
           }
         }
 

@@ -113,11 +113,14 @@ export const StepperComponent: React.FC<SchemaComponentProps> = ({ node, context
   const fireStepChange = useCallback((idx: number) => {
     if (!context || !node.onStepChange) return;
     const pane = stepPanes[idx];
-    context.onAction({
-      ...node.onStepChange,
-      stepIndex: idx,
-      stepTitle: pane?.title ?? '',
-    } as Parameters<typeof context.onAction>[0]);
+    const eventPayload = { stepIndex: idx, stepTitle: pane?.title ?? '' };
+    if (Array.isArray(node.onStepChange)) {
+      for (const action of node.onStepChange) {
+        context.onAction({ ...action, payload: { ...(action.payload ?? {}), ...eventPayload } });
+      }
+    } else {
+      context.onAction({ ...node.onStepChange, payload: { ...(node.onStepChange.payload ?? {}), ...eventPayload } });
+    }
   }, [context, node.onStepChange, stepPanes]);
 
   const goToStep = useCallback((idx: number) => {
@@ -163,7 +166,13 @@ export const StepperComponent: React.FC<SchemaComponentProps> = ({ node, context
     if (!context) return;
     markCompleted(safeIndex);
     if (node.onComplete) {
-      context.onAction(node.onComplete);
+      if (Array.isArray(node.onComplete)) {
+        for (const action of node.onComplete) {
+          context.onAction(action);
+        }
+      } else {
+        context.onAction(node.onComplete);
+      }
     }
   }, [context, safeIndex, markCompleted, node.onComplete]);
 

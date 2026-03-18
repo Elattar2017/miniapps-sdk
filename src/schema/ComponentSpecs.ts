@@ -1313,6 +1313,18 @@ export const COMPONENT_SPECS: Record<string, ComponentSpec> = {
         required: false,
         description: 'Text color for day name headers (Sun, Mon, ...)',
       },
+      selectedTextColor: {
+        type: 'string',
+        required: false,
+        defaultValue: '#FFFFFF',
+        description: 'Text color for the selected date (on top of selectedColor background)',
+      },
+      bookedTextColor: {
+        type: 'string',
+        required: false,
+        defaultValue: '#C9C9C9',
+        description: 'Text color for booked/unavailable dates (showWhen: showAvailability=true)',
+      },
       markedDates: {
         type: 'expression',
         required: false,
@@ -1443,8 +1455,26 @@ export const COMPONENT_SPECS: Record<string, ComponentSpec> = {
         defaultValue: 'No slots available',
         description: 'Message when no time slots are available (showWhen: showTimeSlots=true)',
       },
+      slotLoadingStyle: {
+        type: 'string',
+        required: false,
+        defaultValue: 'spinner',
+        enum: ['spinner', 'skeleton', 'dots'],
+        description: 'Loading indicator style when slots are being fetched (showWhen: showTimeSlots=true)',
+      },
+      slotLoadingColor: {
+        type: 'string',
+        required: false,
+        description: 'Loading indicator color (showWhen: showTimeSlots=true)',
+      },
+      slotLoadingText: {
+        type: 'string',
+        required: false,
+        defaultValue: 'Loading available times...',
+        description: 'Text shown during slot loading (showWhen: showTimeSlots=true)',
+      },
     },
-    children: false,
+    children: true,
     events: ['onChange', 'onMonthChange', 'onSlotSelect'],
     dataBindable: true,
     styles: [
@@ -1452,6 +1482,42 @@ export const COMPONENT_SPECS: Record<string, ComponentSpec> = {
       'backgroundColor', 'borderRadius', 'borderWidth', 'borderColor',
       'width', 'maxWidth', 'alignSelf', 'opacity',
     ],
+  },
+
+  time_slot: {
+    type: 'time_slot',
+    category: 'display',
+    description: 'Template for time slot chip content inside calendar',
+    props: {
+      slotVariable: {
+        type: 'string',
+        required: false,
+        defaultValue: 'slot',
+        description: 'Variable name for slot expressions',
+      },
+      timeField: {
+        type: 'string',
+        required: false,
+        defaultValue: 'time',
+        description: 'API field name for time value',
+      },
+      availableField: {
+        type: 'string',
+        required: false,
+        defaultValue: 'available',
+        description: 'API field for availability (boolean or number > 0)',
+      },
+      labelField: {
+        type: 'string',
+        required: false,
+        defaultValue: 'label',
+        description: 'API field for display label',
+      },
+    },
+    children: true,
+    events: [],
+    dataBindable: false,
+    styles: [],
   },
 
   tab_pane: {

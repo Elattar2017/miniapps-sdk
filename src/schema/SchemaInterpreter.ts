@@ -155,6 +155,94 @@ export class SchemaInterpreter implements ISchemaInterpreter {
       return this.interpretRepeater(styledNode, context, Component);
     }
 
+    // 5b. Handle calendar with time_slot template child
+    if (node.type === 'calendar') {
+      const slotTemplateNode = node.children?.find(c => c.type === 'time_slot');
+      if (slotTemplateNode) {
+        const slotsRaw = (resolvedNode as unknown as Record<string, unknown>).timeSlots;
+        if (Array.isArray(slotsRaw)) {
+          const timeField = (slotTemplateNode.timeField ?? slotTemplateNode.props?.timeField ?? 'time') as string;
+          const availableField = (slotTemplateNode.availableField ?? slotTemplateNode.props?.availableField ?? 'available') as string;
+
+          // Get selected time from state for _selected injection
+          const rawBindKey = (resolvedNode.props?.value ?? '').toString().replace('$state.', '');
+          const calValue = rawBindKey ? context.state[rawBindKey] as Record<string, unknown> | string | undefined : undefined;
+          const selectedTime = typeof calValue === 'object' && calValue ? String(calValue.time ?? '') : '';
+
+          // Get color props from calendar for _textColor/_bgColor injection
+          const primaryColor = context.designTokens?.colors?.primary ?? '#3B82F6';
+          const slotSelectedColor = ((resolvedNode as unknown as Record<string, unknown>).slotSelectedColor ?? primaryColor) as string;
+          const slotSelectedTextColor = ((resolvedNode as unknown as Record<string, unknown>).slotSelectedTextColor ?? '#FFFFFF') as string;
+          const slotAvailableColor = ((resolvedNode as unknown as Record<string, unknown>).slotAvailableColor ?? '#F3F4F6') as string;
+          const slotAvailableTextColor = ((resolvedNode as unknown as Record<string, unknown>).slotAvailableTextColor ?? context.designTokens?.colors?.text ?? '#374151') as string;
+          const slotUnavailableColor = ((resolvedNode as unknown as Record<string, unknown>).slotUnavailableColor ?? '#E5E7EB') as string;
+          const slotUnavailableTextColor = ((resolvedNode as unknown as Record<string, unknown>).slotUnavailableTextColor ?? '#9CA3AF') as string;
+          const fewLeftColor = ((resolvedNode as unknown as Record<string, unknown>).fewLeftColor ?? '#F59E0B') as string;
+
+          const expressionEngine = this.expressionEngine;
+
+          const slotElements = slotsRaw.map((slotData: unknown, idx: number) => {
+            const slot = slotData as Record<string, unknown>;
+            const timeVal = String(slot[timeField] ?? '');
+            const availVal = slot[availableField];
+            const isAvailable = typeof availVal === 'boolean' ? availVal : (typeof availVal === 'number' ? availVal > 0 : true);
+            const isSelected = timeVal === selectedTime;
+            const isDisabled = !isAvailable;
+            const remaining = typeof slot.remaining === 'number' ? slot.remaining : undefined;
+            const isFewLeft = remaining !== undefined && remaining > 0 && remaining <= 2;
+
+            // Determine colors
+            let textColor = slotAvailableTextColor;
+            let bgColor = slotAvailableColor;
+            if (isSelected) { textColor = slotSelectedTextColor; bgColor = slotSelectedColor; }
+            else if (isDisabled) { textColor = slotUnavailableTextColor; bgColor = slotUnavailableColor; }
+            else if (isFewLeft) { bgColor = fewLeftColor; }
+
+            // Inject auto-computed fields into slot data
+            const enrichedSlot = {
+              ...slot,
+              _selected: isSelected,
+              _disabled: isDisabled,
+              _textColor: textColor,
+              _bgColor: bgColor,
+              _index: idx,
+            };
+
+            const slotContext: RenderContext = {
+              ...context,
+              item: enrichedSlot,
+              index: idx,
+              onAction: (action) => {
+                const resolved = expressionEngine.resolveObjectExpressions(
+                  action as unknown as Record<string, unknown>,
+                  { slot: enrichedSlot, item: enrichedSlot, index: idx },
+                ) as unknown as typeof action;
+                context.onAction(resolved);
+              },
+            };
+
+            const element = this.interpret(slotTemplateNode, slotContext);
+            if (!element) return null;
+            return React.cloneElement(element, { key: `slot-tmpl-${idx}` });
+          }).filter(Boolean);
+
+          // Pass slot elements as children, tag node so CalendarComponent knows they're template-rendered
+          const taggedNode: SchemaNode = { ...styledNode, _hasSlotTemplate: true };
+          const componentProps: SchemaComponentProps = {
+            node: taggedNode,
+            context,
+            children: slotElements,
+          };
+
+          return React.createElement(
+            Component,
+            { ...componentProps, key: styledNode.id ?? 'node-calendar' },
+            slotElements,
+          );
+        }
+      }
+    }
+
     // 6. Recursively interpret children
     //    For 'conditional' nodes, Prisma MySQL JSON may move single-child arrays
     //    into a 'then' field — normalize back to children before rendering.
@@ -241,11 +329,22 @@ export class SchemaInterpreter implements ISchemaInterpreter {
   ): SchemaNode {
     let changed = false;
     const updates: Partial<SchemaNode> = {};
+    // Preserve original expression strings in node.props so components can
+    // extract two-way binding keys (e.g., InputComponent, CalendarComponent
+    // read node.props.value to find "$state.fieldName" for state writes).
+    const preservedProps: Record<string, unknown> = { ...(node.props ?? {}) };
+    let propsChanged = false;
 
     for (const prop of EXPRESSION_PROPS) {
       const raw = node[prop];
       if (typeof raw !== 'string') continue;
       if (!this.expressionEngine.isExpression(raw)) continue;
+
+      // Preserve the raw expression in node.props before resolving
+      if (!(prop in preservedProps)) {
+        preservedProps[prop] = raw;
+        propsChanged = true;
+      }
 
       try {
         // Determine if this is a pure expression or a template with static text.
@@ -307,6 +406,26 @@ export class SchemaInterpreter implements ISchemaInterpreter {
       }
     }
 
+    // Resolve calendar data-bearing props (objects and arrays from $data expressions)
+    for (const calProp of ['availabilityData', 'timeSlots', 'markedDates', 'disabledDates'] as const) {
+      const raw = (node as unknown as Record<string, unknown>)[calProp];
+      if (typeof raw === 'string' && this.expressionEngine.isExpression(raw)) {
+        try {
+          const resolved = this.expressionEngine.evaluate(raw, exprContext);
+          if (resolved !== undefined && resolved !== null) {
+            (updates as Record<string, unknown>)[calProp] = resolved;
+            changed = true;
+          }
+        } catch {
+          // Keep as expression string — CalendarComponent handles loading state
+        }
+      }
+    }
+
+    if (propsChanged) {
+      (updates as Record<string, unknown>).props = preservedProps;
+      changed = true;
+    }
     return changed ? { ...node, ...updates } : node;
   }
 
@@ -399,6 +518,7 @@ export class SchemaInterpreter implements ISchemaInterpreter {
       state: context.state,
       user: context.user,
       item: context.item,
+      slot: context.item,    // alias — $slot.xxx works same as $item.xxx
       index: context.index,
       $t: (key: string) => {
         // Try module-namespaced key first, then global

@@ -518,7 +518,12 @@ export function ScreenRenderer({
 
   // Handle action dispatch from schema components
   const handleAction = useCallback(
-    (action: ActionConfig) => {
+    (action: ActionConfig | ActionConfig[]) => {
+      // Handle array of actions (e.g. onChange: [update_state, api_call])
+      if (Array.isArray(action)) {
+        for (const a of action) handleAction(a);
+        return;
+      }
       // Helper: execute one or many actions in sequence
       const executeActions = (actions: ActionConfig | ActionConfig[]) => {
         if (Array.isArray(actions)) {
@@ -579,7 +584,22 @@ export function ScreenRenderer({
                 data: dataRef.current, state: moduleStateRef.current, user: { id: config.userId, tenantId: config.tenantId }, event: action.payload,
               });
             }
-            console.log('[SDK-DEBUG] update_state', action.key, 'resolved:', resolvedValue);
+
+            // Toggle array mode: add/remove value from array stored at key
+            // Usage: { action: "update_state", key: "selectedItems", value: "$item.id", mode: "toggle_array" }
+            if ((action as Record<string, unknown>).mode === 'toggle_array') {
+              const currentArr = Array.isArray(moduleStateRef.current[action.key!])
+                ? [...(moduleStateRef.current[action.key!] as unknown[])]
+                : [];
+              const idx = currentArr.indexOf(resolvedValue);
+              if (idx >= 0) {
+                currentArr.splice(idx, 1);
+              } else {
+                currentArr.push(resolvedValue);
+              }
+              resolvedValue = currentArr;
+            }
+
             // Update ref synchronously so subsequent actions in the same cycle see it
             moduleStateRef.current = { ...moduleStateRef.current, [action.key!]: resolvedValue };
             moduleContextRef.current.setState(action.key, resolvedValue);
@@ -590,18 +610,20 @@ export function ScreenRenderer({
         case 'api_call':
           if (action.dataSource && schema?.dataSources?.[action.dataSource]) {
             const ds = schema.dataSources[action.dataSource];
+            // Use moduleStateRef.current (synchronously updated) instead of stale moduleState
+            const apiCallState = { ...moduleStateRef.current };
             if (action.params) {
               const resolvedParams = expressionEngine.resolveObjectExpressions(
                 typeof action.params === 'string' ? JSON.parse(action.params) : action.params,
-                { data: dataRef.current, state: moduleStateRef.current, user: { id: config.userId, tenantId: config.tenantId } },
+                { data: dataRef.current, state: apiCallState, user: { id: config.userId, tenantId: config.tenantId } },
               );
               const paramStr = new URLSearchParams(
                 Object.entries(resolvedParams).map(([k, v]) => [k, String(v)]),
               ).toString();
               const apiWithParams = ds.api.includes('?') ? `${ds.api}&${paramStr}` : `${ds.api}?${paramStr}`;
-              debouncedFetchDataSources({ [action.dataSource]: { ...ds, api: apiWithParams } });
+              fetchDataSources({ [action.dataSource]: { ...ds, api: apiWithParams } }, apiCallState);
             } else {
-              debouncedFetchDataSources({ [action.dataSource]: ds });
+              fetchDataSources({ [action.dataSource]: ds }, apiCallState);
             }
           }
           break;

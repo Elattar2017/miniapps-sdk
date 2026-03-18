@@ -232,6 +232,15 @@ export interface SchemaNode {
   connectorColor?: string;
   buttonVariant?: string;
 
+  // Time slot template (child of calendar)
+  slotVariable?: string;
+  timeField?: string;
+  availableField?: string;
+  labelField?: string;
+
+  /** Internal flag set by SchemaInterpreter when calendar has a time_slot template child */
+  _hasSlotTemplate?: boolean;
+
   // Calendar component
   selectionMode?: 'single' | 'range' | 'multiple';
   minDate?: string;
@@ -268,6 +277,11 @@ export interface SchemaNode {
   slotUnavailableTextColor?: string;
   slotBorderRadius?: number;
   slotEmptyMessage?: string;
+  slotLoadingStyle?: string; // 'spinner' | 'skeleton' | 'dots'
+  slotLoadingColor?: string;
+  slotLoadingText?: string;
+  selectedTextColor?: string;
+  bookedTextColor?: string;
   onSlotSelect?: ActionConfig;
 }
 

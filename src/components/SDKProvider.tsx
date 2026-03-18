@@ -70,6 +70,7 @@ import {
   StepperComponent,
   StepComponent,
   CalendarComponent,
+  TimeSlotComponent,
 } from '../schema/components';
 import { SDKView, SDKText, SDKActivityIndicator } from '../adapters';
 import { createSDKNavigator, SDKNavigationContainer } from '../adapters/NavigationAdapter';
@@ -151,6 +152,7 @@ function buildComponentRegistry(): ComponentRegistry {
     stepper: StepperComponent,
     step: StepComponent,
     calendar: CalendarComponent,
+    time_slot: TimeSlotComponent,
   };
 
   for (const [type, component] of Object.entries(componentMap)) {

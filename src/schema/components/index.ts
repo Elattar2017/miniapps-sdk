@@ -39,3 +39,4 @@ export { SafeAreaViewComponent } from './SafeAreaViewComponent';
 export { StepperComponent } from './StepperComponent';
 export { StepComponent } from './StepComponent';
 export { CalendarComponent } from './CalendarComponent';
+export { TimeSlotComponent } from './TimeSlotComponent';
