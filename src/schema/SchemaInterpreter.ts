@@ -529,6 +529,122 @@ export class SchemaInterpreter implements ISchemaInterpreter {
         }
         return i18n.t(key);
       },
+
+      // ── Built-in expression functions available to all developers ──
+
+      // $formatDate("2026-03-30") → "Mar 30, 2026"
+      // $formatDate("2026-03-30", "short") → "Mar 30"
+      // $formatDate("2026-03-30", "long") → "March 30, 2026"
+      // $formatDate("2026-03-30", "weekday") → "Mon, Mar 30"
+      $formatDate: (dateStr: string, format?: string) => {
+        if (!dateStr || typeof dateStr !== 'string') return '';
+        const parts = dateStr.split('-');
+        if (parts.length !== 3) return dateStr;
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const monthsFull = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        const d = parseInt(parts[2], 10);
+        if (isNaN(y) || isNaN(m) || isNaN(d)) return dateStr;
+        const date = new Date(y, m, d);
+        const dayName = dayNames[date.getDay()];
+        switch (format) {
+          case 'short': return `${months[m]} ${d}`;
+          case 'long': return `${monthsFull[m]} ${d}, ${y}`;
+          case 'weekday': return `${dayName}, ${months[m]} ${d}`;
+          case 'iso': return dateStr;
+          default: return `${months[m]} ${d}, ${y}`;
+        }
+      },
+
+      // $formatTime("16:00") → "4:00 PM"
+      // $formatTime("09:30") → "9:30 AM"
+      // $formatTime("16:00", "24h") → "16:00"
+      $formatTime: (timeStr: string, format?: string) => {
+        if (!timeStr || typeof timeStr !== 'string') return '';
+        if (format === '24h') return timeStr;
+        const parts = timeStr.split(':');
+        if (parts.length < 2) return timeStr;
+        let h = parseInt(parts[0], 10);
+        const min = parts[1];
+        if (isNaN(h)) return timeStr;
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        return `${h}:${min} ${ampm}`;
+      },
+
+      // $formatCurrency(49.99) → "$49.99"
+      // $formatCurrency(49.99, "EUR") → "€49.99"
+      // $formatCurrency(49.99, "AED") → "49.99 AED"
+      $formatCurrency: (amount: unknown, currency?: string) => {
+        const num = typeof amount === 'number' ? amount : parseFloat(String(amount));
+        if (isNaN(num)) return String(amount ?? '');
+        const formatted = num % 1 === 0 ? String(num) : num.toFixed(2);
+        const cur = currency ?? 'USD';
+        const symbols: Record<string, string> = { USD: '$', EUR: '€', GBP: '£', JPY: '¥' };
+        if (symbols[cur]) return `${symbols[cur]}${formatted}`;
+        return `${formatted} ${cur}`;
+      },
+
+      // $sum([1, 2, 3]) → 6
+      // $sum($state.selectedServices, $data.services, "price") → total price of selected
+      $sum: (...args: unknown[]) => {
+        // Simple array sum: $sum([1, 2, 3])
+        if (args.length === 1 && Array.isArray(args[0])) {
+          return (args[0] as number[]).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
+        }
+        // Filtered sum: $sum(selectedIds, allItems, "priceField")
+        // Sums priceField of items whose id is in selectedIds
+        if (args.length === 3 && Array.isArray(args[0]) && Array.isArray(args[1]) && typeof args[2] === 'string') {
+          const ids = args[0] as string[];
+          const items = args[1] as Record<string, unknown>[];
+          const field = args[2] as string;
+          return items
+            .filter(item => ids.includes(String(item.id ?? '')))
+            .reduce((total, item) => total + (typeof item[field] === 'number' ? (item[field] as number) : 0), 0);
+        }
+        // Sum of arguments: $sum(1, 2, 3)
+        return (args as number[]).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
+      },
+
+      // $count([...]) → array length
+      $count: (arr: unknown) => {
+        if (Array.isArray(arr)) return arr.length;
+        return 0;
+      },
+
+      // $uppercase("hello") → "HELLO"
+      $uppercase: (str: unknown) => typeof str === 'string' ? str.toUpperCase() : String(str ?? ''),
+
+      // $lowercase("HELLO") → "hello"
+      $lowercase: (str: unknown) => typeof str === 'string' ? str.toLowerCase() : String(str ?? ''),
+
+      // $replace("hello-world", "-", " ") → "hello world"
+      $replace: (str: unknown, search: string, replacement: string) => {
+        if (typeof str !== 'string') return String(str ?? '');
+        return str.split(search).join(replacement);
+      },
+
+      // $round(49.99) → 50, $round(49.99, 1) → 50.0
+      $round: (num: unknown, decimals?: number) => {
+        const n = typeof num === 'number' ? num : parseFloat(String(num));
+        if (isNaN(n)) return 0;
+        const d = decimals ?? 0;
+        return Math.round(n * Math.pow(10, d)) / Math.pow(10, d);
+      },
+
+      // $if(condition, trueVal, falseVal) — simpler than ternary for text
+      $if: (condition: unknown, trueVal: unknown, falseVal: unknown) => condition ? trueVal : falseVal,
+
+      // $join(["a", "b", "c"], ", ") → "a, b, c"
+      $join: (arr: unknown, separator?: string) => {
+        if (Array.isArray(arr)) return arr.join(separator ?? ', ');
+        return String(arr ?? '');
+      },
+
+      // $Math for basic math — $Math.min, $Math.max, $Math.abs, $Math.floor, $Math.ceil
+      Math: { min: Math.min, max: Math.max, abs: Math.abs, floor: Math.floor, ceil: Math.ceil },
     };
   }
 }
