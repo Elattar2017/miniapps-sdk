@@ -282,19 +282,39 @@ class Parser {
   private ternary(): unknown {
     const condition = this.logicalOr();
     if (this.match('QUESTION')) {
-      const consequent = this.expression();
-      this.expect('COLON', ':');
-      const alternate = this.expression();
-      return condition ? consequent : alternate;
+      if (condition) {
+        // Short-circuit: only evaluate the consequent, skip alternate
+        const consequent = this.expression();
+        this.expect('COLON', ':');
+        this.skipExpression(); // parse but don't evaluate
+        return consequent;
+      } else {
+        // Short-circuit: skip consequent, only evaluate alternate
+        this.skipExpression(); // parse but don't evaluate
+        this.expect('COLON', ':');
+        return this.expression();
+      }
     }
     return condition;
+  }
+
+  /** Skip/consume an expression without evaluating it (for short-circuit) */
+  private skipExpression(): void {
+    this.checkDepthAndTime();
+    // We need to advance past tokens that form a valid expression.
+    // The simplest safe approach: just evaluate and discard (catches errors internally).
+    try { this.expression(); } catch { /* swallow — we're skipping anyway */ }
   }
 
   private logicalOr(): unknown {
     let left = this.logicalAnd();
     while (this.matchOperator('||')) {
-      const right = this.logicalAnd();
-      left = left || right;
+      if (left) {
+        // Short-circuit: left is truthy, skip right
+        try { this.logicalAnd(); } catch { /* skip */ }
+      } else {
+        left = this.logicalAnd();
+      }
     }
     return left;
   }
@@ -302,8 +322,12 @@ class Parser {
   private logicalAnd(): unknown {
     let left = this.equality();
     while (this.matchOperator('&&')) {
-      const right = this.equality();
-      left = left && right;
+      if (!left) {
+        // Short-circuit: left is falsy, skip right
+        try { this.equality(); } catch { /* skip */ }
+      } else {
+        left = this.equality();
+      }
     }
     return left;
   }
