@@ -577,12 +577,15 @@ export function ScreenRenderer({
 
         case 'update_state':
           if (action.key) {
-            // Resolve $event expressions when payload is present (e.g. from onChartPress)
+            // Always resolve expressions in the value ($data, $state, $event, etc.)
             let resolvedValue = action.value;
-            if (action.payload && typeof resolvedValue === 'string' && expressionEngine.isExpression(resolvedValue)) {
-              resolvedValue = expressionEngine.evaluate(resolvedValue, {
-                data: dataRef.current, state: moduleStateRef.current, user: { id: config.userId, tenantId: config.tenantId }, event: action.payload,
-              });
+            if (typeof resolvedValue === 'string' && expressionEngine.isExpression(resolvedValue)) {
+              const exprCtx: Record<string, unknown> = {
+                data: dataRef.current, state: moduleStateRef.current,
+                user: { id: config.userId, tenantId: config.tenantId },
+              };
+              if (action.payload) exprCtx.event = action.payload;
+              resolvedValue = expressionEngine.evaluate(resolvedValue, exprCtx);
             }
 
             // Toggle array mode: add/remove value from array stored at key
