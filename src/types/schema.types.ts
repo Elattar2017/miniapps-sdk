@@ -367,6 +367,13 @@ export interface DataSourceConfig {
     strategy: 'memory' | 'storage';
   };
   cachePolicy?: DataSourceCachePolicy;
+  /** Sync configuration for this data source */
+  sync?: {
+    /** Trigger sync when screen loads (populate $data from sync engine) */
+    syncOnLoad: boolean;
+    /** Collection name in the SyncEngine (e.g. "appointments") */
+    collection: string;
+  };
 }
 
 /** Screen transition animation types for navigate actions */
@@ -426,6 +433,15 @@ export interface ActionConfig {
   mediaMultiple?: boolean;
   /** Max items when multiple */
   mediaMaxCount?: number;
+
+  // ── sync fields (api_submit) ──
+  /** Sync configuration for api_submit — track changes locally for offline sync */
+  sync?: {
+    /** Save submitted data locally via SyncEngine.trackChange() */
+    trackChanges: boolean;
+    /** Collection name in the SyncEngine (e.g. "appointments") */
+    collection: string;
+  };
 
   // ── capture_camera fields ──
   /** ID of camera_view component to capture from */

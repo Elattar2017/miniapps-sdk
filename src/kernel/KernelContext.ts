@@ -16,6 +16,7 @@ import type { PolicyEngine } from './policy/PolicyEngine';
 import type { ModuleRegistry } from '../modules/ModuleRegistry';
 import type { SDKNavigator } from '../adapters/NavigationAdapter';
 import type { APIProxy } from './network/APIProxy';
+import type { SyncEngine } from './sync/SyncEngine';
 import type { SubscriptionProvider } from './policy/SubscriptionProvider';
 
 // Forward reference — we import the concrete class type for the context
@@ -35,6 +36,7 @@ export interface KernelInstance {
   getPolicyEngine(): PolicyEngine;
   getModuleRegistry(): ModuleRegistry;
   getAPIProxy(): APIProxy | null;
+  getSyncEngine(): SyncEngine | null;
 }
 
 /** Value carried by KernelContext */
@@ -61,6 +63,8 @@ export interface KernelContextValue {
   designTokens: DesignTokens;
   /** API proxy for kernel-level HTTP requests */
   apiProxy: APIProxy | null;
+  /** Sync engine for offline-first data synchronization */
+  syncEngine: SyncEngine | null;
   /** User roles extracted from JWT claims */
   userRoles: string[];
   subscriptionProvider?: SubscriptionProvider;
@@ -103,6 +107,7 @@ interface KernelProviderProps {
   navigator: SDKNavigator;
   designTokens: DesignTokens;
   apiProxy: APIProxy | null;
+  syncEngine: SyncEngine | null;
   userRoles: string[];
   subscriptionProvider?: SubscriptionProvider;
   children?: React.ReactNode;
@@ -124,13 +129,14 @@ export function KernelProvider({
   navigator,
   designTokens,
   apiProxy,
+  syncEngine,
   userRoles,
   subscriptionProvider,
   children,
 }: KernelProviderProps): React.JSX.Element {
   const value = useMemo<KernelContextValue>(
-    () => ({ kernel, state, config, status, dataBus, intentBridge, policyEngine, moduleRegistry, navigator, designTokens, apiProxy, userRoles, subscriptionProvider }),
-    [kernel, state, config, status, dataBus, intentBridge, policyEngine, moduleRegistry, navigator, designTokens, apiProxy, userRoles, subscriptionProvider],
+    () => ({ kernel, state, config, status, dataBus, intentBridge, policyEngine, moduleRegistry, navigator, designTokens, apiProxy, syncEngine, userRoles, subscriptionProvider }),
+    [kernel, state, config, status, dataBus, intentBridge, policyEngine, moduleRegistry, navigator, designTokens, apiProxy, syncEngine, userRoles, subscriptionProvider],
   );
 
   return React.createElement(KernelContext.Provider, { value }, children);
@@ -152,6 +158,7 @@ export function useSDKServices() {
     moduleRegistry: ctx.moduleRegistry,
     navigator: ctx.navigator,
     apiProxy: ctx.apiProxy,
+    syncEngine: ctx.syncEngine,
     userRoles: ctx.userRoles,
     subscriptionProvider: ctx.subscriptionProvider,
   };

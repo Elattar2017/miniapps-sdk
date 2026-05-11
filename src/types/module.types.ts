@@ -44,6 +44,21 @@ export interface ModuleManifest {
   assets?: Record<string, string>;
   /** Declarative navigation configuration for all screens in this module */
   navigation?: ModuleNavigationConfig;
+  /** Offline sync configuration for this module's data collections */
+  sync?: ModuleSyncConfig;
+}
+
+/** Module-level sync configuration (defined in manifest) */
+export interface ModuleSyncConfig {
+  enabled: boolean;
+  collections: Record<string, ModuleSyncCollectionConfig>;
+}
+
+/** Per-collection sync configuration */
+export interface ModuleSyncCollectionConfig {
+  conflictStrategy: 'server-wins' | 'client-wins' | 'latest-timestamp' | 'manual-resolution';
+  syncIntervalMs?: number;
+  fieldOverrides?: Record<string, 'server-wins' | 'client-wins' | 'latest-timestamp' | 'manual-resolution'>;
 }
 
 /** Module-level navigation configuration (declared in manifest, editable in Developer Portal) */

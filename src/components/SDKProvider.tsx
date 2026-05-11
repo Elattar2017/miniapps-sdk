@@ -349,6 +349,7 @@ export function SDKProvider({ children, ...config }: SDKProviderProps): React.JS
         navigator: navigatorRef.current,
         designTokens: configRef.current.designTokens ?? DEFAULT_DESIGN_TOKENS,
         apiProxy: kernel.getAPIProxy(),
+        syncEngine: kernel.getSyncEngine(),
         userRoles: kernel.getUserRoles(),
         subscriptionProvider,
       },

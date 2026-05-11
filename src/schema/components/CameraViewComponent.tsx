@@ -29,13 +29,13 @@
  */
 
 import React, { useMemo, Component } from 'react';
-import { SDKView, SDKText } from '../../adapters';
+import { SDKView } from '../../adapters';
 import { getCameraView, MockCameraView } from '../../adapters/CameraViewAdapter';
 import type { SchemaComponentProps } from '../../types';
 
 /** Error boundary to prevent native camera crashes from killing the app */
 class CameraErrorBoundary extends Component<
-  { children: React.ReactNode; cameraFacing: string },
+  { children?: React.ReactNode; cameraFacing: string },
   { hasError: boolean }
 > {
   state = { hasError: false };

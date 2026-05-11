@@ -642,12 +642,249 @@ Pub/sub message bus for communication between modules, kernel, and host:
 
 ## Sync Engine
 
-Offline-first data synchronization with conflict resolution:
+Offline-first data synchronization with conflict resolution. **Note:** The SyncEngine is fully implemented but not yet wired into the kernel — it's infrastructure ready for when modules need offline data sync.
 
-- **Vector clocks** for per-entry causality tracking
-- **Conflict resolution:** Pluggable custom resolver (last-write-wins default)
-- **Push/pull pattern:** Dirty entries pushed, remote changes pulled
-- **Persistence:** Offline queue persisted to storage
+### How It Works
+
+```
+  Phone (offline)                    Server
+       │                               │
+       │  trackChange("profiles",      │
+       │    "user-123", {name:"Ahmed"}) │
+       │         │                     │
+       │   [stored locally in MMKV     │
+       │    with vector clock]         │
+       │         │                     │
+       │         │   (goes online)     │
+       │         │                     │
+       │  sync("profiles")            │
+       │  ┌──────┴──────┐             │
+       │  │ PUSH dirty  │────────────>│  POST /api/sync/profiles/push
+       │  │ entries     │             │  { entries: [{id, data, vectorClock}] }
+       │  └─────────────┘             │
+       │  ┌─────────────┐             │
+       │  │ PULL remote │<────────────│  POST /api/sync/profiles/pull
+       │  │ changes     │             │  { since: lastSyncTimestamp }
+       │  └──────┬──────┘             │
+       │         │                     │
+       │  Compare vector clocks:       │
+       │  - remote newer → accept      │
+       │  - local newer → keep         │
+       │  - concurrent → resolve       │
+       │    conflict                   │
+       └─────────────────────────────  │
+```
+
+### Creating the SyncEngine
+
+```typescript
+import { SyncEngine } from './kernel/sync/SyncEngine';
+import { ConflictResolver } from './kernel/sync/ConflictResolver';
+
+// 1. Create a conflict resolver with your preferred strategy
+const conflictResolver = new ConflictResolver({
+  defaultStrategy: 'latest-timestamp',    // newest write wins
+  fieldOverrides: {
+    'balance': 'server-wins',             // server is authoritative for money
+    'draft_notes': 'client-wins',         // user's local edits always win
+  },
+  maxConflictQueueSize: 50,
+  conflictTTL: 3600,                      // 1 hour before auto-resolve
+}, dataBus);
+
+// 2. Create the sync engine
+const syncEngine = new SyncEngine(
+  storageBackend,      // MMKV or InMemory storage
+  apiProxy,            // APIProxy instance for HTTP calls
+  conflictResolver,
+  dataBus,             // optional, for publishing sync events
+  {
+    nodeId: 'phone-abc123',   // unique ID for this device
+    syncIntervalMs: 30000,    // optional: auto-sync every 30s
+    maxRetries: 3,
+  },
+);
+```
+
+### Tracking Local Changes
+
+When the user modifies data while offline (or online), call `trackChange`:
+
+```typescript
+// User edits their profile
+syncEngine.trackChange('profiles', 'user-123', {
+  name: 'Ahmed',
+  email: 'ahmed@example.com',
+  updatedAt: Date.now(),
+});
+
+// User creates a new note
+syncEngine.trackChange('notes', 'note-456', {
+  title: 'Meeting notes',
+  body: 'Discussed Q3 roadmap...',
+  createdAt: Date.now(),
+});
+
+// User updates an existing note
+syncEngine.trackChange('notes', 'note-456', {
+  title: 'Meeting notes (updated)',
+  body: 'Discussed Q3 roadmap and budget...',
+  createdAt: Date.now(),
+});
+```
+
+Each call:
+- Increments the vector clock for this device
+- Marks the entry as `dirty` (needs to be pushed)
+- Persists to MMKV storage (survives app restarts/crashes)
+
+### Syncing with the Server
+
+When the device is online, call `sync` to push local changes and pull remote ones:
+
+```typescript
+const result = await syncEngine.sync('profiles');
+
+console.log(result);
+// { synced: 3, conflicts: 1, errors: 0 }
+//
+// synced: 3     → 3 entries successfully synchronized
+// conflicts: 1  → 1 conflict detected and resolved
+// errors: 0     → no failures
+```
+
+**What happens during sync:**
+
+1. **Push phase** — all dirty entries are sent to `POST /api/sync/profiles/push`
+2. **Pull phase** — remote changes fetched from `POST /api/sync/profiles/pull`
+3. **For each remote entry**, vector clocks are compared:
+
+| Vector Clock Result | Meaning | Action |
+|-------------------|---------|--------|
+| `equal` | Same version | Skip |
+| `before` | Local is older | Accept remote (overwrite local) |
+| `after` | Local is newer | Keep local |
+| `concurrent` | Both changed independently | Run ConflictResolver |
+
+### Conflict Resolution Strategies
+
+When two sides change the same entry independently, the ConflictResolver picks a winner:
+
+```typescript
+// Strategy 1: Server always wins (good for authoritative data like balances)
+{ defaultStrategy: 'server-wins' }
+
+// Strategy 2: Client always wins (good for local drafts, preferences)
+{ defaultStrategy: 'client-wins' }
+
+// Strategy 3: Latest timestamp wins (general purpose, ties go to server)
+{ defaultStrategy: 'latest-timestamp' }
+
+// Strategy 4: Queue for manual resolution (user picks the winner)
+{ defaultStrategy: 'manual-resolution' }
+```
+
+**Manual resolution example:**
+
+```typescript
+// When strategy is 'manual-resolution', conflicts are queued
+const pending = conflictResolver.getPendingConflicts();
+
+for (const conflict of pending) {
+  console.log(`Conflict on ${conflict.id}:`);
+  console.log(`  Local:  ${JSON.stringify(conflict.local.data)}`);
+  console.log(`  Remote: ${JSON.stringify(conflict.remote.data)}`);
+}
+
+// User picks a winner
+conflictResolver.resolveManually('user-123', 'local');   // keep local version
+conflictResolver.resolveManually('note-456', 'remote');  // accept server version
+```
+
+### Listening to Sync Events
+
+The SyncEngine publishes events on the DataBus:
+
+```typescript
+// Sync started
+dataBus.subscribe('sdk:sync:started', (data) => {
+  console.log(`Syncing ${data.collection}...`);
+});
+
+// Sync completed
+dataBus.subscribe('sdk:sync:completed', (data) => {
+  console.log(`Sync done: ${data.result.synced} synced, ${data.result.conflicts} conflicts`);
+});
+
+// Sync failed
+dataBus.subscribe('sdk:sync:error', (data) => {
+  console.log(`Sync failed: ${data.error}`);
+});
+
+// Conflict detected
+dataBus.subscribe('sdk:sync:conflict:detected', (data) => {
+  console.log(`Conflict on ${data.id}, using strategy: ${data.strategy}`);
+});
+
+// Conflict resolved
+dataBus.subscribe('sdk:sync:conflict:resolved', (data) => {
+  console.log(`Conflict ${data.id} resolved → ${data.resolution}`);
+});
+```
+
+### Checking Sync Status
+
+```typescript
+syncEngine.getStatus();                    // 'idle' | 'syncing' | 'conflict' | 'error'
+syncEngine.getLastSyncTime('profiles');    // timestamp or null
+syncEngine.getDirtyEntries('profiles');    // entries waiting to be pushed
+```
+
+### Vector Clocks Explained
+
+Vector clocks track causality — they answer "did this change happen before, after, or independently of that change?"
+
+```typescript
+import * as VectorClock from './kernel/sync/VectorClock';
+
+// Device A makes a change
+let clockA = VectorClock.create('phone-A');    // { "phone-A": 1 }
+clockA = VectorClock.increment(clockA, 'phone-A');  // { "phone-A": 2 }
+
+// Server makes a change
+let clockB = VectorClock.create('server');     // { "server": 1 }
+
+// Compare them
+VectorClock.compare(clockA, clockB);  // 'concurrent' — independent changes!
+
+// After resolving, merge both clocks
+const merged = VectorClock.merge(clockA, clockB);  // { "phone-A": 2, "server": 1 }
+// Now both sides know about each other's changes
+```
+
+### Backend API Contract
+
+The SyncEngine expects two endpoints per collection:
+
+**Push** — `POST /api/sync/{collection}/push`
+```json
+// Request
+{ "entries": [{ "id": "user-123", "data": {...}, "vectorClock": {"phone-A": 2}, "timestamp": 1715200000, "nodeId": "phone-A" }] }
+
+// Response (200 OK)
+{ "accepted": 1 }
+```
+
+**Pull** — `POST /api/sync/{collection}/pull`
+```json
+// Request
+{ "since": 1715100000 }
+
+// Response (200 OK)
+{ "entries": [{ "id": "user-123", "data": {...}, "vectorClock": {"server": 3}, "timestamp": 1715200500, "nodeId": "server" }] }
+```
+
+These endpoints do not exist in the current backend — they would need to be implemented when sync is wired into the kernel.
 
 ---
 

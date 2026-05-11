@@ -203,7 +203,7 @@ export function ScreenRenderer({
 }: ScreenRendererProps): React.JSX.Element {
   const { config } = useKernel();
   const { moduleLoader, schemaInterpreter, expressionEngine, assetResolver } = useSDK();
-  const { navigator, intentBridge, dataBus, apiProxy } = useSDKServices();
+  const { navigator, intentBridge, dataBus, apiProxy, syncEngine } = useSDKServices();
   const { isRTL: i18nIsRTL, locale: i18nLocale } = useTranslation();
 
   const [schema, setSchema] = useState<ScreenSchema | null>(null);
@@ -330,6 +330,25 @@ export function ScreenRenderer({
           }
         }
 
+        // Configure sync engine from manifest sync config
+        if (manifest?.sync?.enabled && syncEngine) {
+          let minIntervalMs = 0;
+          for (const [collection, collectionConfig] of Object.entries(manifest.sync.collections)) {
+            syncEngine.registerCollection(collection);
+            if (collectionConfig.syncIntervalMs && collectionConfig.syncIntervalMs > 0) {
+              minIntervalMs = minIntervalMs === 0
+                ? collectionConfig.syncIntervalMs
+                : Math.min(minIntervalMs, collectionConfig.syncIntervalMs);
+            }
+            screenLogger.debug('Sync collection registered from manifest', {
+              moduleId, collection, strategy: collectionConfig.conflictStrategy,
+            });
+          }
+          if (minIntervalMs > 0) {
+            syncEngine.start(minIntervalMs);
+          }
+        }
+
         setSchema(screenSchema);
         setLoading(false);
 
@@ -379,23 +398,6 @@ export function ScreenRenderer({
     };
   }, []);
 
-  // Debounced data source fetcher
-  function debouncedFetchDataSources(
-    dataSources: Record<string, DataSourceConfig | { api: string; method: string }>,
-  ): void {
-    if (isFirstMountRef.current) {
-      isFirstMountRef.current = false;
-      fetchDataSources(dataSources);
-      return;
-    }
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-    debounceTimerRef.current = setTimeout(() => {
-      fetchDataSources(dataSources);
-    }, 300);
-  }
-
   // Data source cache TTL: 5 minutes
   const DS_CACHE_TTL = 300_000;
 
@@ -409,6 +411,18 @@ export function ScreenRenderer({
 
     for (const [key, ds] of Object.entries(dataSources)) {
       try {
+        // Check if this data source uses sync-on-load
+        const dsTypedSync = ds as DataSourceConfig;
+        if (dsTypedSync.sync?.syncOnLoad && dsTypedSync.sync.collection && syncEngine) {
+          const collection = dsTypedSync.sync.collection;
+          try {
+            await syncEngine.sync(collection);
+          } catch {
+            screenLogger.warn('Sync failed for data source, falling back to local entries', { key, collection });
+          }
+          screenLogger.debug('Sync-on-load completed for data source', { key, collection });
+        }
+
         // Resolve expressions in ds.api (e.g. "/api/plans/${state.planId}")
         const resolvedApi = ds.api.includes('${')
           ? expressionEngine.resolveExpressions(ds.api, { state: effectiveState, data })
@@ -590,7 +604,7 @@ export function ScreenRenderer({
 
             // Toggle array mode: add/remove value from array stored at key
             // Usage: { action: "update_state", key: "selectedItems", value: "$item.id", mode: "toggle_array" }
-            if ((action as Record<string, unknown>).mode === 'toggle_array') {
+            if ((action as unknown as Record<string, unknown>).mode === 'toggle_array') {
               const currentArr = Array.isArray(moduleStateRef.current[action.key!])
                 ? [...(moduleStateRef.current[action.key!] as unknown[])]
                 : [];
@@ -704,6 +718,20 @@ export function ScreenRenderer({
                   dataRef.current = { ...dataRef.current, [storeKey]: response.data };
                   setData((prev) => ({ ...prev, [storeKey]: response.data }));
                 }
+
+                // Track change for sync if configured
+                if (action.sync?.trackChanges && action.sync.collection && syncEngine) {
+                  const responseData = response.data as Record<string, unknown> | null;
+                  const entryId = (responseData?.id as string) ?? `${Date.now()}`;
+                  syncEngine.trackChange(action.sync.collection, entryId, {
+                    ...resolvedBody,
+                    ...(responseData ?? {}),
+                  });
+                  screenLogger.debug('Tracked change for sync', {
+                    collection: action.sync.collection, entryId,
+                  });
+                }
+
                 // Execute onSuccess action(s)
                 if (action.onSuccess) {
                   executeActions(action.onSuccess);
@@ -711,6 +739,15 @@ export function ScreenRenderer({
 
                 screenLogger.info('api_submit succeeded', { moduleId, api: resolvedApi, status: response.status });
               } else {
+                // Track change for sync even on failure (offline support)
+                if (action.sync?.trackChanges && action.sync.collection && syncEngine) {
+                  const entryId = `offline-${Date.now()}`;
+                  syncEngine.trackChange(action.sync.collection, entryId, resolvedBody);
+                  screenLogger.debug('Tracked offline change for sync', {
+                    collection: action.sync.collection, entryId,
+                  });
+                }
+
                 // Execute onError action(s)
                 if (action.onError) {
                   executeActions(action.onError);
@@ -722,6 +759,15 @@ export function ScreenRenderer({
               setScreenLoading(false);
               const message = err instanceof Error ? err.message : String(err);
               screenLogger.error('api_submit error', { moduleId, api: resolvedApi, error: message });
+
+              // Track change for sync on network error (offline support)
+              if (action.sync?.trackChanges && action.sync.collection && syncEngine) {
+                const entryId = `offline-${Date.now()}`;
+                syncEngine.trackChange(action.sync.collection, entryId, resolvedBody);
+                screenLogger.debug('Tracked offline change for sync (network error)', {
+                  collection: action.sync.collection, entryId,
+                });
+              }
 
               if (action.onError) {
                 executeActions(action.onError);

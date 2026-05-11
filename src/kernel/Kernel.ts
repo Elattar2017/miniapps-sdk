@@ -40,6 +40,9 @@ import { ModuleRegistry } from '../modules/ModuleRegistry';
 import { APIProxy } from './network/APIProxy';
 import { CryptoAdapter } from './identity/CryptoAdapter';
 import { ModuleTokenManager } from './identity/ModuleTokenManager';
+import { SyncEngine } from './sync/SyncEngine';
+import { ConflictResolver } from './sync/ConflictResolver';
+import { createPlatformStorage } from '../adapters/StorageAdapter';
 
 const BOOT_TIMER_LABEL = 'kernel:boot';
 
@@ -70,6 +73,7 @@ export class RuntimeKernel {
   private readonly moduleRegistry = new ModuleRegistry();
   private moduleLoader: ModuleLoader | null = null;
   private apiProxy: APIProxy | null = null;
+  private syncEngine: SyncEngine | null = null;
 
   // ---------------------------------------------------------------
   // Public API — Lifecycle
@@ -125,6 +129,26 @@ export class RuntimeKernel {
         });
       }
 
+      // Create SyncEngine after API proxy is available
+      if (this.config && this.apiProxy) {
+        const syncStorage = createPlatformStorage({
+          id: `${this.config.tenantId}:__sync__`,
+          encryptionKey: this.config.encryptionKey,
+        });
+        const conflictResolver = new ConflictResolver(
+          { defaultStrategy: 'latest-timestamp', maxConflictQueueSize: 50, conflictTTL: 3600 },
+          this.dataBus,
+        );
+        this.syncEngine = new SyncEngine(
+          syncStorage,
+          this.apiProxy,
+          conflictResolver,
+          this.dataBus,
+          { nodeId: `${this.config.tenantId}:${this.config.userId}` },
+        );
+        this.log.debug('SyncEngine initialized');
+      }
+
       await this.doPolicySync();
       await this.doModuleSync();
       await this.doZoneRender();
@@ -178,6 +202,11 @@ export class RuntimeKernel {
       this.tokenRefreshManager.stopMonitoring();
     }
 
+    // Stop auto-sync while suspended
+    if (this.syncEngine) {
+      this.syncEngine.stop();
+    }
+
     this.log.info('Kernel suspended');
   }
 
@@ -192,6 +221,11 @@ export class RuntimeKernel {
     // Restart token refresh monitoring
     if (this.tokenRefreshManager && this.config) {
       this.tokenRefreshManager.startMonitoring(this.config.authToken);
+    }
+
+    // Restart auto-sync
+    if (this.syncEngine) {
+      this.syncEngine.start();
     }
 
     // Transition back to ACTIVE
@@ -211,6 +245,12 @@ export class RuntimeKernel {
     if (this.tokenRefreshManager) {
       this.tokenRefreshManager.stopMonitoring();
       this.tokenRefreshManager = null;
+    }
+
+    // Stop and clear sync engine
+    if (this.syncEngine) {
+      this.syncEngine.stop();
+      this.syncEngine = null;
     }
 
     // Clear subsystems
@@ -311,6 +351,11 @@ export class RuntimeKernel {
   /** Get the API proxy (null until boot initializes it after auth) */
   getAPIProxy(): APIProxy | null {
     return this.apiProxy;
+  }
+
+  /** Get the sync engine (null until boot initializes it) */
+  getSyncEngine(): SyncEngine | null {
+    return this.syncEngine;
   }
 
   /** Get the user roles extracted from the JWT during auth */
