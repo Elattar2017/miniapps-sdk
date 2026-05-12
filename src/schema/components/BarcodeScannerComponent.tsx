@@ -66,11 +66,20 @@ export const BarcodeScannerComponent: React.FC<SchemaComponentProps> = ({ node, 
   }, [activeRaw, context.state]);
 
   // Handle native barcode detection event — fires onScan action(s)
-  // Resolves $event.value and $event.format inline before dispatching,
-  // because the expression engine may not have $event in its context
-  // at the ScreenRenderer action dispatch level.
-  const handleBarcodeDetected = useCallback((event: { nativeEvent: { value: string; format: string } }) => {
-    const { value, format } = event.nativeEvent;
+  const handleBarcodeDetected = useCallback((event: unknown) => {
+    // Native events may come as { nativeEvent: { value, format } } or { value, format } directly
+    const evt = event as Record<string, unknown>;
+    const nativeEvt = (evt?.nativeEvent ?? evt) as Record<string, unknown>;
+    const value = String(nativeEvt?.value ?? '');
+    const format = String(nativeEvt?.format ?? '');
+
+    console.log('[BARCODE] handleBarcodeDetected raw event:', JSON.stringify(event));
+    console.log('[BARCODE] resolved value:', value, 'format:', format);
+
+    if (!value) {
+      console.log('[BARCODE] No value in event, skipping');
+      return;
+    }
     const onScan = node.onScan ?? node.props?.onScan;
     if (onScan && context.onAction) {
       const actions = Array.isArray(onScan) ? onScan : [onScan];
