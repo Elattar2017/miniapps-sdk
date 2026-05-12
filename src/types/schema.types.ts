@@ -183,6 +183,13 @@ export interface SchemaNode {
   shape?: 'circle' | 'square' | 'rounded';
   mirror?: boolean;           // Mirror the camera feed (auto for front camera)
 
+  // Barcode scanner component
+  formats?: string[];         // Barcode formats to detect: 'qr', 'ean-13', 'code-128', etc.
+  torch?: boolean;            // Enable flashlight
+  scanInterval?: number;      // Min ms between scan events (default 1500)
+  active?: boolean | string;  // Enable/disable scanning (expression supported)
+  onScan?: ActionConfig | ActionConfig[];  // Fires with $event.value + $event.format
+
   // Overlay components (scan_frame, corner_brackets, face_guide, grid_overlay, crosshair, scan_line)
   borderStyle?: 'solid' | 'dashed' | 'dotted';
   inset?: number;

@@ -713,6 +713,53 @@ export const COMPONENT_SPECS: Record<string, ComponentSpec> = {
     ],
   },
 
+  barcode_scanner: {
+    type: 'barcode_scanner',
+    category: 'input',
+    description: 'Live camera barcode/QR scanner — children render as overlays on top of feed. Fires onScan with { value, format } when a code is detected.',
+    props: {
+      formats: {
+        type: 'array',
+        required: false,
+        defaultValue: ['qr', 'ean-13', 'code-128'],
+        description: 'Barcode formats to detect: qr, ean-13, ean-8, upc-a, upc-e, code-128, code-39, code-93, itf, codabar, pdf-417, data-matrix, aztec',
+      },
+      cameraFacing: {
+        type: 'string',
+        required: false,
+        defaultValue: 'back',
+        enum: ['front', 'back'],
+        description: 'Camera direction',
+      },
+      torch: {
+        type: 'boolean',
+        required: false,
+        defaultValue: false,
+        description: 'Enable flashlight / torch',
+      },
+      scanInterval: {
+        type: 'number',
+        required: false,
+        defaultValue: 1500,
+        description: 'Minimum ms between scan events (prevents duplicate reads)',
+      },
+      active: {
+        type: 'expression',
+        required: false,
+        defaultValue: true,
+        description: 'Enable/disable scanning (e.g. $state.scanning). Camera feed stays visible when false.',
+      },
+    },
+    children: true,
+    events: ['onScan'],
+    dataBindable: false,
+    styles: [
+      'width', 'height', 'borderRadius', 'borderWidth', 'borderColor',
+      'margin', 'marginTop', 'marginBottom', 'padding', 'alignSelf',
+      'aspectRatio', 'overflow', 'opacity',
+    ],
+  },
+
   file_upload: {
     type: 'file_upload',
     category: 'input',

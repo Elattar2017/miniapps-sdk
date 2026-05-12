@@ -24,6 +24,7 @@ export { CheckboxComponent } from './CheckboxComponent';
 export { ChartComponent } from './ChartComponent';
 export { FileUploadComponent } from './FileUploadComponent';
 export { CameraViewComponent } from './CameraViewComponent';
+export { BarcodeScannerComponent } from './BarcodeScannerComponent';
 export { AccordionComponent } from './AccordionComponent';
 export { AccordionItemComponent } from './AccordionItemComponent';
 export { BottomSheetComponent } from './BottomSheetComponent';
