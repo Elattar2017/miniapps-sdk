@@ -13,7 +13,7 @@
  * @module schema/components/BarcodeScannerComponent
  */
 
-import React, { useMemo, useRef, useCallback, Component } from 'react';
+import React, { useMemo, useRef, Component } from 'react';
 import { SDKView, SDKText } from '../../adapters';
 import { getCameraView, MockCameraView } from '../../adapters/CameraViewAdapter';
 import type { SchemaComponentProps } from '../../types';
@@ -40,8 +40,6 @@ class ScannerErrorBoundary extends Component<
 
 export const BarcodeScannerComponent: React.FC<SchemaComponentProps> = ({ node, context, children }) => {
   const cameraFacing = (node.cameraFacing ?? node.props?.cameraFacing ?? 'back') as string;
-  const formats = (node.formats ?? node.props?.formats ?? ['qr', 'ean-13', 'code-128']) as string[];
-  const torch = (node.torch ?? node.props?.torch ?? false) as boolean;
   const scanInterval = (node.scanInterval ?? node.props?.scanInterval ?? 1500) as number;
   const activeRaw = node.active ?? node.props?.active ?? true;
 
@@ -68,39 +66,27 @@ export const BarcodeScannerComponent: React.FC<SchemaComponentProps> = ({ node, 
   // Throttle scan events
   const lastScanRef = useRef<number>(0);
 
-  // Dispatch onScan — pass action directly, $event via payload (matching existing component patterns)
-  const handleBarcodesDetected = useCallback((barcodes: Array<{ value: string; format: string }>) => {
-    if (!isActive || barcodes.length === 0) return;
-    const now = Date.now();
-    if (now - lastScanRef.current < scanInterval) return;
-    lastScanRef.current = now;
-
-    const barcode = barcodes[0];
-    const onScan = node.onScan ?? node.props?.onScan;
-    if (onScan && context.onAction) {
-      const actions = Array.isArray(onScan) ? onScan : [onScan];
-      for (const action of actions) {
-        context.onAction({
-          ...action,
-          payload: { ...(action.payload ?? {}), value: barcode.value, format: barcode.format },
-        });
-      }
-    }
-  }, [isActive, scanInterval, node.onScan, node.props?.onScan, context]);
+  // Throttle ref for future native barcode detection callbacks
+  void scanInterval; // referenced by future native module integration
+  void lastScanRef; // referenced by future native module integration
 
   // Get the native camera feed component (stable ref from module-level cache)
   const CameraFeed = getCameraView();
 
-  // Container styles — node.style spread last so schema overrides take precedence
+  // Container styles — match CameraViewComponent pattern
+  const containerWidth = (node.style?.width as number) ?? 300;
+  const containerHeight = (node.style?.height as number) ?? 280;
+  const containerBorderRadius = (node.style?.borderRadius as number) ?? 16;
+
   const containerStyle = useMemo(() => ({
+    ...(node.style ?? {}),
+    width: containerWidth,
+    height: containerHeight,
+    borderRadius: containerBorderRadius,
     overflow: 'hidden' as const,
     position: 'relative' as const,
     backgroundColor: '#1a1a2e',
-    width: 250,
-    height: 250,
-    borderRadius: 16,
-    ...(node.style ?? {}),
-  }), [node.style]);
+  }), [node.style, containerWidth, containerHeight, containerBorderRadius]);
 
   const feedStyle = useMemo(() => ({
     width: '100%' as const,
@@ -122,18 +108,15 @@ export const BarcodeScannerComponent: React.FC<SchemaComponentProps> = ({ node, 
       accessibilityRole: 'none' as const,
       accessibilityLabel: `Barcode scanner (${resolvedFacing} camera)`,
     },
-    // Camera feed with barcode detection — wrapped in error boundary
+    // Camera feed — wrapped in error boundary.
+    // Uses the same CameraFeed (SDKCameraView) as camera_view.
+    // Barcode detection props will be passed when the native barcode module is available.
     React.createElement(ScannerErrorBoundary, { cameraFacing: resolvedFacing },
-      React.createElement(CameraFeed as React.ComponentType<Record<string, unknown>>, {
+      React.createElement(CameraFeed, {
         cameraId: node.id,
         cameraFacing: resolvedFacing,
         mirror: false,
         style: feedStyle,
-        // Native barcode detection props (passed to native module)
-        barcodeFormats: formats,
-        barcodeScanEnabled: isActive,
-        torchEnabled: torch,
-        onBarcodesDetected: handleBarcodesDetected,
       }),
     ),
     // Overlay children (scan_frame, corner_brackets, scan_line, etc.)
