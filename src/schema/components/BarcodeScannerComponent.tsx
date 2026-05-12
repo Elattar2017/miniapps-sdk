@@ -67,33 +67,35 @@ export const BarcodeScannerComponent: React.FC<SchemaComponentProps> = ({ node, 
 
   // Handle native barcode detection event — fires onScan action(s)
   const handleBarcodeDetected = useCallback((event: unknown) => {
-    // Native events may come as { nativeEvent: { value, format } } or { value, format } directly
+    // Native RCTDirectEventBlock wraps data in { nativeEvent: { ... } }
     const evt = event as Record<string, unknown>;
     const nativeEvt = (evt?.nativeEvent ?? evt) as Record<string, unknown>;
     const value = String(nativeEvt?.value ?? '');
     const format = String(nativeEvt?.format ?? '');
 
-    console.log('[BARCODE] handleBarcodeDetected raw event:', JSON.stringify(event));
-    console.log('[BARCODE] resolved value:', value, 'format:', format);
+    // Safe logging — native event objects have circular references
+    console.log('[BARCODE] detected: value=' + value + ' format=' + format);
 
-    if (!value) {
-      console.log('[BARCODE] No value in event, skipping');
-      return;
-    }
+    if (!value) return;
     const onScan = node.onScan ?? node.props?.onScan;
     if (onScan && context.onAction) {
       const actions = Array.isArray(onScan) ? onScan : [onScan];
       for (const action of actions) {
-        // Pre-resolve $event references in the action before dispatching
-        const resolved = JSON.parse(
-          JSON.stringify(action)
-            .replace(/\$event\.value/g, value)
-            .replace(/\$event\.format/g, format),
-        );
+        // Pre-resolve $event.value and $event.format in action properties
+        const resolvedAction: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(action)) {
+          if (typeof v === 'string') {
+            resolvedAction[k] = v
+              .replace(/\$event\.value/g, value)
+              .replace(/\$event\.format/g, format);
+          } else {
+            resolvedAction[k] = v;
+          }
+        }
         context.onAction({
-          ...resolved,
-          payload: { ...(resolved.payload ?? {}), value, format },
-        });
+          ...resolvedAction,
+          payload: { value, format },
+        } as unknown as import('../../types').ActionConfig);
       }
     }
   }, [node.onScan, node.props?.onScan, context]);
