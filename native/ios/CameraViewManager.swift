@@ -290,6 +290,7 @@ class SDKCameraView: UIView {
         self.currentDevice = device
 
         self.updateMirror()
+        self.updateBarcodeDetection()
       }
     }
   }
