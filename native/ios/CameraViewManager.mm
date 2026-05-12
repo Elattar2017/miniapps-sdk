@@ -7,12 +7,17 @@
 
 #import <React/RCTViewManager.h>
 #import <React/RCTLog.h>
+#import <React/RCTComponent.h>
 
 // Forward declare — the actual class is in Swift with @objc(SDKCameraView)
 @interface SDKCameraView : UIView
 @property (nonatomic, copy, nullable) NSString *cameraId;
 @property (nonatomic, copy, nullable) NSString *cameraFacing;
 @property (nonatomic, assign) BOOL mirror;
+@property (nonatomic, assign) BOOL barcodeScanEnabled;
+@property (nonatomic, copy, nullable) NSArray *barcodeFormats;
+@property (nonatomic, assign) double scanInterval;
+@property (nonatomic, copy, nullable) RCTDirectEventBlock onBarcodeDetected;
 @end
 
 @interface SDKCameraViewManager : RCTViewManager
@@ -52,5 +57,9 @@ RCT_EXPORT_MODULE(SDKCameraView)
 RCT_EXPORT_VIEW_PROPERTY(cameraId, NSString)
 RCT_EXPORT_VIEW_PROPERTY(cameraFacing, NSString)
 RCT_EXPORT_VIEW_PROPERTY(mirror, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(barcodeScanEnabled, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(barcodeFormats, NSArray)
+RCT_EXPORT_VIEW_PROPERTY(scanInterval, double)
+RCT_EXPORT_VIEW_PROPERTY(onBarcodeDetected, RCTDirectEventBlock)
 
 @end

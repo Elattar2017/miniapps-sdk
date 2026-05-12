@@ -21,6 +21,11 @@ export interface CameraViewProps {
   mirror?: boolean;
   style?: Record<string, unknown>;
   children?: React.ReactNode;
+  // Barcode scanner props (passed through to native view when present)
+  barcodeScanEnabled?: boolean;
+  barcodeFormats?: string[];
+  scanInterval?: number;
+  onBarcodeDetected?: (event: { nativeEvent: { value: string; format: string } }) => void;
 }
 
 /**

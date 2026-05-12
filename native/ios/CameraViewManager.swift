@@ -27,6 +27,7 @@ class SDKCameraView: UIView {
   private var captureSession: AVCaptureSession?
   private var previewLayer: AVCaptureVideoPreviewLayer?
   private var photoOutput: AVCapturePhotoOutput?
+  private var metadataOutput: AVCaptureMetadataOutput?
   private var currentDevice: AVCaptureDevice?
 
   /// Shared serial queue for ALL camera session operations across all instances.
@@ -41,6 +42,13 @@ class SDKCameraView: UIView {
   private var _cameraId: String = ""
   private var _cameraFacing: String = "back"
   private var _mirror: Bool = false
+  private var _barcodeScanEnabled: Bool = false
+  private var _barcodeFormats: [String] = []
+  private var _lastScanTime: TimeInterval = 0
+  private var _scanInterval: TimeInterval = 1.5
+
+  /// RN callback for barcode detection — set via onBarcodeDetected prop
+  @objc var onBarcodeDetected: RCTDirectEventBlock?
 
   // MARK: - Prop Setters (ObjC-safe: accept NSString? which may be nil from RN bridge)
 
@@ -78,6 +86,27 @@ class SDKCameraView: UIView {
     }
   }
 
+  @objc var barcodeScanEnabled: Bool {
+    get { _barcodeScanEnabled }
+    set {
+      _barcodeScanEnabled = newValue
+      updateBarcodeDetection()
+    }
+  }
+
+  @objc var barcodeFormats: NSArray? {
+    get { _barcodeFormats as NSArray }
+    set {
+      _barcodeFormats = (newValue as? [String]) ?? []
+      updateBarcodeDetection()
+    }
+  }
+
+  @objc var scanInterval: Double {
+    get { _scanInterval }
+    set { _scanInterval = newValue / 1000.0 } // JS passes ms, convert to seconds
+  }
+
   // MARK: - Lifecycle
 
   override func didMoveToWindow() {
@@ -104,6 +133,7 @@ class SDKCameraView: UIView {
     captureSession = nil
     previewLayer = nil
     photoOutput = nil
+    metadataOutput = nil
     currentDevice = nil
 
     // Stop session async on the shared queue — never block deinit
@@ -275,6 +305,7 @@ class SDKCameraView: UIView {
     captureSession = nil
     previewLayer = nil
     photoOutput = nil
+    metadataOutput = nil
     currentDevice = nil
 
     // Remove preview layer immediately (we're on main thread)
@@ -339,6 +370,62 @@ class SDKCameraView: UIView {
     }
   }
 
+  // MARK: - Barcode Detection
+
+  private func updateBarcodeDetection() {
+    guard let session = captureSession else { return }
+
+    SDKCameraView.sessionQueue.async { [weak self] in
+      guard let self = self else { return }
+
+      // Remove existing metadata output
+      if let existing = self.metadataOutput {
+        session.removeOutput(existing)
+        self.metadataOutput = nil
+      }
+
+      guard self._barcodeScanEnabled, !self._barcodeFormats.isEmpty else { return }
+
+      let output = AVCaptureMetadataOutput()
+      guard session.canAddOutput(output) else { return }
+
+      session.addOutput(output)
+      output.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
+
+      // Map SDK format strings to AVMetadataObject.ObjectType
+      let types = self.mapBarcodeFormats(self._barcodeFormats)
+      let available = output.availableMetadataObjectTypes
+      output.metadataObjectTypes = types.filter { available.contains($0) }
+
+      self.metadataOutput = output
+      NSLog("[SDKCameraView] Barcode detection enabled: %@", self._barcodeFormats.joined(separator: ", "))
+    }
+  }
+
+  private func mapBarcodeFormats(_ formats: [String]) -> [AVMetadataObject.ObjectType] {
+    var types: [AVMetadataObject.ObjectType] = []
+    for f in formats {
+      switch f.lowercased() {
+      case "qr":           types.append(.qr)
+      case "ean-13":       types.append(.ean13)
+      case "ean-8":        types.append(.ean8)
+      case "upc-a":        types.append(.upce) // iOS handles UPC-A as EAN-13 superset
+      case "upc-e":        types.append(.upce)
+      case "code-128":     types.append(.code128)
+      case "code-39":      types.append(.code39)
+      case "code-93":      types.append(.code93)
+      case "itf":          types.append(.interleaved2of5)
+      case "codabar":      if #available(iOS 15.4, *) { types.append(.codabar) }
+      case "pdf-417":      types.append(.pdf417)
+      case "data-matrix":  types.append(.dataMatrix)
+      case "aztec":        types.append(.aztec)
+      default:
+        NSLog("[SDKCameraView] Unknown barcode format: %@", f)
+      }
+    }
+    return types
+  }
+
   // MARK: - Frame Capture (for captureFromView)
 
   /// Stable key for objc_setAssociatedObject — must be a pointer, not a string literal
@@ -384,6 +471,52 @@ private class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
     }
 
     completion(image, nil)
+  }
+}
+
+// MARK: - AVCaptureMetadataOutputObjectsDelegate (Barcode Detection)
+
+extension SDKCameraView: AVCaptureMetadataOutputObjectsDelegate {
+  func metadataOutput(
+    _ output: AVCaptureMetadataOutput,
+    didOutput metadataObjects: [AVMetadataObject],
+    from connection: AVCaptureConnection
+  ) {
+    guard _barcodeScanEnabled else { return }
+
+    // Throttle: skip if within scan interval
+    let now = Date().timeIntervalSince1970
+    guard now - _lastScanTime >= _scanInterval else { return }
+
+    guard let readable = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+          let value = readable.stringValue else { return }
+
+    _lastScanTime = now
+
+    // Map AVMetadataObject.ObjectType back to SDK format string
+    let format = mapNativeFormatToSDK(readable.type)
+
+    NSLog("[SDKCameraView] Barcode detected: format=%@, value=%@", format, value)
+
+    // Fire the RN callback
+    onBarcodeDetected?(["value": value, "format": format])
+  }
+
+  private func mapNativeFormatToSDK(_ type: AVMetadataObject.ObjectType) -> String {
+    switch type {
+    case .qr:              return "qr"
+    case .ean13:           return "ean-13"
+    case .ean8:            return "ean-8"
+    case .upce:            return "upc-e"
+    case .code128:         return "code-128"
+    case .code39:          return "code-39"
+    case .code93:          return "code-93"
+    case .interleaved2of5: return "itf"
+    case .pdf417:          return "pdf-417"
+    case .dataMatrix:      return "data-matrix"
+    case .aztec:           return "aztec"
+    default:               return type.rawValue
+    }
   }
 }
 
